@@ -1,12 +1,12 @@
 export interface Quote {
-  c: number;   // current price
-  d: number;   // change
-  dp: number;  // percent change
-  h: number;   // high
-  l: number;   // low
-  o: number;   // open
-  pc: number;  // previous close
-  t: number;   // timestamp
+  c: number;
+  d: number;
+  dp: number;
+  h: number;
+  l: number;
+  o: number;
+  pc: number;
+  t: number;
 }
 
 export interface Candle {
@@ -56,7 +56,7 @@ export interface WatchlistItem {
 }
 
 export type Timeframe = '15m' | '30m' | '1h' | '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y';
-
+export type Theme = 'dark' | 'light';
 export type IndicatorType = 'SMA' | 'EMA' | 'RSI' | 'MACD' | 'BB';
 
 export interface IndicatorConfig {

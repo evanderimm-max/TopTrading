@@ -8,12 +8,12 @@ function mapTimeframe(tf: Timeframe): { interval: string; outputsize: number } {
     case '15m': return { interval: '1min',   outputsize: 15 };
     case '30m': return { interval: '1min',   outputsize: 30 };
     case '1h':  return { interval: '5min',   outputsize: 12 };
-    case '1D':  return { interval: '5min',   outputsize: 78 };
-    case '1W':  return { interval: '30min',  outputsize: 70 };
-    case '1M':  return { interval: '1day',   outputsize: 22 };
-    case '3M':  return { interval: '1day',   outputsize: 65 };
-    case '1Y':  return { interval: '1week',  outputsize: 52 };
-    case '5Y':  return { interval: '1month', outputsize: 60 };
+    case '1D':  return { interval: '5min',   outputsize: 390 };
+    case '1W':  return { interval: '15min',  outputsize: 500 };
+    case '1M':  return { interval: '1day',   outputsize: 60 };
+    case '3M':  return { interval: '1day',   outputsize: 180 };
+    case '1Y':  return { interval: '1day',   outputsize: 365 };
+    case '5Y':  return { interval: '1week',  outputsize: 260 };
   }
 }
 
