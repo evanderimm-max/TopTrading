@@ -7,6 +7,7 @@ const AVAILABLE_INDICATORS: { type: IndicatorType; name: string; description: st
   { type: 'EMA', name: 'Exponential Moving Average', description: 'Weighted average giving more weight to recent prices', category: 'Trend', defaults: { period: 20 } },
   { type: 'BB', name: 'Bollinger Bands', description: 'Volatility bands around a moving average', category: 'Volatility', defaults: { period: 20, stdDev: 2 } },
   { type: 'RSI', name: 'Relative Strength Index', description: 'Momentum oscillator measuring speed of price changes', category: 'Momentum', defaults: { period: 14 } },
+  { type: 'RPS', name: 'Relative Price Strength', description: 'Percentage price change over N periods', category: 'Momentum', defaults: { period: 12 } },
   { type: 'MACD', name: 'MACD', description: 'Moving average convergence/divergence', category: 'Momentum', defaults: { fast: 12, slow: 26, signal: 9 } },
 ];
 const CATEGORIES = ['All', 'Trend', 'Momentum', 'Volatility'];

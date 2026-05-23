@@ -57,7 +57,7 @@ export interface WatchlistItem {
 
 export type Timeframe = '15m' | '30m' | '1h' | '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y';
 export type Theme = 'dark' | 'light';
-export type IndicatorType = 'SMA' | 'EMA' | 'RSI' | 'MACD' | 'BB';
+export type IndicatorType = 'SMA' | 'EMA' | 'RSI' | 'MACD' | 'BB' | 'RPS';
 
 export interface IndicatorConfig {
   id: string;

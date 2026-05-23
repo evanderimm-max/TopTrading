@@ -47,17 +47,21 @@ export default function Chart({ symbol }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef = useRef<HTMLDivElement>(null);
   const macdContainerRef = useRef<HTMLDivElement>(null);
+  const rpsContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const rsiChartRef = useRef<IChartApi | null>(null);
   const macdChartRef = useRef<IChartApi | null>(null);
+  const rpsChartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const overlaySeriesRef = useRef<ISeriesApi<'Line'>[]>([]);
   const rsiSeriesRef = useRef<ISeriesApi<'Line'>[]>([]);
   const macdSeriesRef = useRef<(ISeriesApi<'Line'> | ISeriesApi<'Histogram'>)[]>([]);
+  const rpsSeriesRef = useRef<ISeriesApi<'Line'>[]>([]);
   const [chartReady, setChartReady] = useState(false);
   const [rsiReady, setRsiReady] = useState(false);
   const [macdReady, setMacdReady] = useState(false);
+  const [rpsReady, setRpsReady] = useState(false);
   const [legend, setLegend] = useState<{ o: number; h: number; l: number; c: number; v: number } | null>(null);
 
   const indicatorResults = useMemo<IndicatorResult[]>(() => {
@@ -67,6 +71,7 @@ export default function Chart({ symbol }: Props) {
 
   const hasRSI = indicatorResults.some(r => r.type === 'RSI');
   const hasMACD = indicatorResults.some(r => r.type === 'MACD');
+  const hasRPS = indicatorResults.some(r => r.type === 'RPS');
   const colors = useMemo(() => getThemeColors(theme), [theme]);
 
   const onCrosshairMove = useCallback((param: MouseEventParams) => {
@@ -154,6 +159,26 @@ export default function Chart({ symbol }: Props) {
     return () => { chart.remove(); macdChartRef.current = null; macdSeriesRef.current = []; setMacdReady(false); };
   }, [hasMACD, colors]);
 
+  // RPS sub-chart
+  useEffect(() => {
+    if (!hasRPS || !rpsContainerRef.current) {
+      if (rpsChartRef.current) { rpsChartRef.current.remove(); rpsChartRef.current = null; rpsSeriesRef.current = []; }
+      setRpsReady(false);
+      return;
+    }
+    const chart = createChart(rpsContainerRef.current, {
+      autoSize: true,
+      layout: { background: { type: ColorType.Solid, color: colors.bg }, textColor: colors.text, fontSize: 10 },
+      grid: { vertLines: { color: colors.grid }, horzLines: { color: colors.grid } },
+      rightPriceScale: { borderColor: colors.border },
+      timeScale: { visible: false },
+      crosshair: { horzLine: { visible: false }, vertLine: { visible: false } },
+    });
+    rpsChartRef.current = chart;
+    setRpsReady(true);
+    return () => { chart.remove(); rpsChartRef.current = null; rpsSeriesRef.current = []; setRpsReady(false); };
+  }, [hasRPS, colors]);
+
   // Set candle + volume data
   useEffect(() => {
     if (!chartReady || !candleSeriesRef.current || !volumeSeriesRef.current) return;
@@ -185,6 +210,11 @@ export default function Chart({ symbol }: Props) {
     if (macdChartRef.current) {
       macdSeriesRef.current.forEach(s => { try { macdChartRef.current!.removeSeries(s); } catch {} });
       macdSeriesRef.current = [];
+    }
+    // Clear RPS
+    if (rpsChartRef.current) {
+      rpsSeriesRef.current.forEach(s => { try { rpsChartRef.current!.removeSeries(s); } catch {} });
+      rpsSeriesRef.current = [];
     }
 
     for (const result of indicatorResults) {
@@ -221,9 +251,23 @@ export default function Chart({ symbol }: Props) {
           macdSeriesRef.current.push(s);
         }
         macdChartRef.current.timeScale().fitContent();
+      } else if (result.type === 'RPS' && rpsReady && rpsChartRef.current) {
+        for (const line of result.lines) {
+          const s = rpsChartRef.current.addLineSeries({ color: line.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
+          s.setData(line.data);
+          rpsSeriesRef.current.push(s);
+        }
+        // Zero line
+        if (result.lines[0]?.data.length > 1) {
+          const pts = result.lines[0].data;
+          const zl = rpsChartRef.current.addLineSeries({ color: colors.text + '30', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
+          zl.setData(pts.map(p => ({ time: p.time, value: 0 })));
+          rpsSeriesRef.current.push(zl);
+        }
+        rpsChartRef.current.timeScale().fitContent();
       }
     }
-  }, [indicatorResults, chartReady, rsiReady, macdReady, colors]);
+  }, [indicatorResults, chartReady, rsiReady, macdReady, rpsReady, colors]);
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
   const dl = legend || (lastCandle ? { o: lastCandle.open, h: lastCandle.high, l: lastCandle.low, c: lastCandle.close, v: lastCandle.volume } : null);
@@ -298,6 +342,18 @@ export default function Chart({ symbol }: Props) {
             ))}
           </div>
           <div ref={macdContainerRef} style={{ width: '100%', height: '100%' }} />
+        </div>
+      )}
+
+      {hasRPS && (
+        <div style={{ height: '100px', borderTop: '1px solid var(--border-glass)', position: 'relative', flexShrink: 0 }}>
+          <div style={{ position: 'absolute', top: '4px', left: '8px', zIndex: 20, fontSize: '10px', pointerEvents: 'auto', display: 'flex', gap: '6px', alignItems: 'center', background: 'var(--bg-glass)', backdropFilter: 'var(--glass-blur)', padding: '2px 6px', borderRadius: '4px' }}>
+            <span style={{ color: '#ff9800' }}>RPS</span>
+            {indicatorResults.filter(r => r.type === 'RPS').map(r => (
+              <button key={r.id} onClick={() => removeIndicator(r.id)} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: '10px', padding: 0, cursor: 'pointer' }}>×</button>
+            ))}
+          </div>
+          <div ref={rpsContainerRef} style={{ width: '100%', height: '100%' }} />
         </div>
       )}
     </div>

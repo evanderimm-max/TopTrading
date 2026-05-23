@@ -84,6 +84,15 @@ function calcMACD(closes: number[], fast: number, slow: number, signal: number) 
   return { macdLine, signalLine: fullSignal };
 }
 
+function calcRPS(closes: number[], period: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  for (let i = 0; i < closes.length; i++) {
+    if (i < period) { result.push(null); continue; }
+    result.push(((closes[i] / closes[i - period]) - 1) * 100);
+  }
+  return result;
+}
+
 function calcBB(closes: number[], period: number, stdDev: number) {
   const middle = sma(closes, period);
   const upper: (number | null)[] = [];
@@ -151,6 +160,11 @@ export function computeIndicator(config: IndicatorConfig, candles: Candle[]): In
         ],
         histogram: { data: histData },
       };
+    }
+    case 'RPS': {
+      const period = config.params.period || 12;
+      const values = calcRPS(closes, period);
+      return { id: config.id, type: 'RPS', overlay: false, lines: [toLine(values, config.color || '#ff9800', `RPS ${period}`)] };
     }
     case 'BB': {
       const period = config.params.period || 20;
