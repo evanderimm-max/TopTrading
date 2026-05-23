@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, CrosshairMode } from 'lightweight-charts';
-import type { IChartApi, ISeriesApi } from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, Time } from 'lightweight-charts';
 import { useCandles } from '../../hooks/useCandles';
 import { useAppStore } from '../../store';
 import type { Timeframe } from '../../types';
@@ -12,7 +12,7 @@ interface Props { symbol: string }
 export default function Chart({ symbol }: Props) {
   const timeframe = useAppStore(s => s.timeframe);
   const setTimeframe = useAppStore(s => s.setTimeframe);
-  const { candles, loading } = useCandles(symbol, timeframe);
+  const { candles, loading, error } = useCandles(symbol, timeframe);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -24,6 +24,7 @@ export default function Chart({ symbol }: Props) {
     if (!containerRef.current) return;
 
     const chart = createChart(containerRef.current, {
+      autoSize: true,
       layout: {
         background: { type: ColorType.Solid, color: '#131722' },
         textColor: '#8892b0',
@@ -39,17 +40,12 @@ export default function Chart({ symbol }: Props) {
         vertLine: { color: '#3b4578', labelBackgroundColor: '#3b4578' },
         horzLine: { color: '#3b4578', labelBackgroundColor: '#3b4578' },
       },
-      rightPriceScale: {
-        borderColor: '#1e2130',
-        textColor: '#6b7db3',
-      },
+      rightPriceScale: { borderColor: '#1e2130' },
       timeScale: {
         borderColor: '#1e2130',
         timeVisible: true,
         secondsVisible: false,
       },
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
     });
 
     const candleSeries = chart.addCandlestickSeries({
@@ -76,14 +72,7 @@ export default function Chart({ symbol }: Props) {
     volumeSeriesRef.current = volumeSeries;
     setChartReady(true);
 
-    const observer = new ResizeObserver(entries => {
-      const { width, height } = entries[0].contentRect;
-      chart.applyOptions({ width, height });
-    });
-    observer.observe(containerRef.current);
-
     return () => {
-      observer.disconnect();
       chart.remove();
       chartRef.current = null;
       candleSeriesRef.current = null;
@@ -93,11 +82,23 @@ export default function Chart({ symbol }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!chartReady || !candleSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return;
+    if (!chartReady || !candleSeriesRef.current || !volumeSeriesRef.current) return;
+    if (candles.length === 0) {
+      candleSeriesRef.current.setData([]);
+      volumeSeriesRef.current.setData([]);
+      return;
+    }
 
-    const candleData = candles.map(c => ({ time: c.time as unknown as import('lightweight-charts').Time, open: c.open, high: c.high, low: c.low, close: c.close }));
+    const candleData = candles.map(c => ({
+      time: c.time as Time,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+    }));
+
     const volumeData = candles.map(c => ({
-      time: c.time as unknown as import('lightweight-charts').Time,
+      time: c.time as Time,
       value: c.volume,
       color: c.close >= c.open ? 'rgba(34,197,94,0.4)' : 'rgba(239,68,68,0.4)',
     }));
@@ -107,9 +108,11 @@ export default function Chart({ symbol }: Props) {
     chartRef.current?.timeScale().fitContent();
   }, [candles, chartReady]);
 
+  const noData = !loading && !error && candles.length === 0;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#131722' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 12px', borderBottom: '1px solid #1e2130' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '8px 12px', borderBottom: '1px solid #1e2130', flexShrink: 0 }}>
         {TIMEFRAMES.map(tf => (
           <button
             key={tf}
@@ -124,20 +127,35 @@ export default function Chart({ symbol }: Props) {
             {tf}
           </button>
         ))}
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '4px' }}>
+        <div style={{ marginLeft: 'auto' }}>
           <span style={{ color: '#4a5568', fontSize: '11px', padding: '4px 8px', background: '#1e2130', borderRadius: '4px' }}>
             Candlestick
           </span>
         </div>
       </div>
 
-      <div style={{ flex: 1, position: 'relative' }}>
+      <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
         {loading && (
           <div style={{
             position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(19,23,34,0.7)', zIndex: 10, color: '#6b7db3', fontSize: '14px'
+            background: 'rgba(19,23,34,0.85)', zIndex: 10, color: '#6b7db3', fontSize: '14px', gap: '8px',
           }}>
+            <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
             Loading chart data...
+          </div>
+        )}
+        {(error || noData) && !loading && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center', zIndex: 10, gap: '8px',
+          }}>
+            <span style={{ fontSize: '28px' }}>📭</span>
+            <span style={{ color: '#6b7db3', fontSize: '13px' }}>
+              {error ? `Error: ${error}` : `No data available for ${symbol} — ${timeframe}`}
+            </span>
+            <span style={{ color: '#4a5568', fontSize: '11px' }}>
+              Try a different timeframe or check your API key
+            </span>
           </div>
         )}
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
