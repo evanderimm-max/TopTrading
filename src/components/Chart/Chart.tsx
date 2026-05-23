@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createChart, ColorType, CrosshairMode } from 'lightweight-charts';
 import type { IChartApi, ISeriesApi } from 'lightweight-charts';
 import { useCandles } from '../../hooks/useCandles';
@@ -18,6 +18,7 @@ export default function Chart({ symbol }: Props) {
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const [chartReady, setChartReady] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -73,6 +74,7 @@ export default function Chart({ symbol }: Props) {
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
+    setChartReady(true);
 
     const observer = new ResizeObserver(entries => {
       const { width, height } = entries[0].contentRect;
@@ -86,11 +88,12 @@ export default function Chart({ symbol }: Props) {
       chartRef.current = null;
       candleSeriesRef.current = null;
       volumeSeriesRef.current = null;
+      setChartReady(false);
     };
   }, []);
 
   useEffect(() => {
-    if (!candleSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return;
+    if (!chartReady || !candleSeriesRef.current || !volumeSeriesRef.current || candles.length === 0) return;
 
     const candleData = candles.map(c => ({ time: c.time as unknown as import('lightweight-charts').Time, open: c.open, high: c.high, low: c.low, close: c.close }));
     const volumeData = candles.map(c => ({
@@ -102,7 +105,7 @@ export default function Chart({ symbol }: Props) {
     candleSeriesRef.current.setData(candleData);
     volumeSeriesRef.current.setData(volumeData);
     chartRef.current?.timeScale().fitContent();
-  }, [candles]);
+  }, [candles, chartReady]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#131722' }}>
