@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getStooqCandles } from '../utils/stooq';
+import { getTwelveDataCandles } from '../utils/twelvedata';
 import type { Candle, Timeframe } from '../types';
 
 export function useCandles(symbol: string, timeframe: Timeframe) {
@@ -13,7 +13,7 @@ export function useCandles(symbol: string, timeframe: Timeframe) {
     setError(null);
     setCandles([]);
 
-    getStooqCandles(symbol, timeframe)
+    getTwelveDataCandles(symbol, timeframe)
       .then(data => {
         setCandles(data);
         setLoading(false);
