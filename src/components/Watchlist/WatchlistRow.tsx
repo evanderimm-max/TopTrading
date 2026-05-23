@@ -14,7 +14,7 @@ export default function WatchlistRow({ symbol, name, active, onSelect, onRemove 
   const [hovered, setHovered] = useState(false);
 
   const isPositive = (quote?.dp ?? 0) >= 0;
-  const changeColor = isPositive ? '#22c55e' : '#ef4444';
+  const changeColor = isPositive ? '#26a69a' : '#ef5350';
 
   return (
     <div
@@ -22,24 +22,29 @@ export default function WatchlistRow({ symbol, name, active, onSelect, onRemove 
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        padding: '10px 14px', cursor: 'pointer', display: 'flex',
-        justifyContent: 'space-between', alignItems: 'center',
-        borderBottom: '1px solid #1a1e2e',
-        background: active ? '#1e2130' : hovered ? '#161b27' : 'transparent',
-        borderLeft: active ? '2px solid #3b82f6' : '2px solid transparent',
+        display: 'flex', alignItems: 'center', padding: '6px 12px', cursor: 'pointer',
+        borderBottom: '1px solid #1e222d',
+        background: active ? '#2a2e39' : hovered ? '#262b3d' : 'transparent',
         transition: 'background 0.1s',
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ color: '#e2e8f0', fontSize: '13px', fontWeight: 600 }}>{symbol}</div>
-        <div style={{ color: '#4a5568', fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+        <div style={{ color: '#d1d4dc', fontSize: '12px', fontWeight: 600 }}>{symbol}</div>
+        <div style={{ color: '#787b86', fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
       </div>
 
-      <div style={{ textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '1px' }}>
-        <span style={{ color: '#d1d5db', fontSize: '13px', fontWeight: 500 }}>
+      <div style={{ width: '70px', textAlign: 'right' }}>
+        <span style={{ color: '#d1d4dc', fontSize: '12px' }}>
           {quote ? quote.c.toFixed(2) : '—'}
         </span>
-        <span style={{ color: changeColor, fontSize: '10px' }}>
+      </div>
+
+      <div style={{ width: '60px', textAlign: 'right' }}>
+        <span style={{
+          color: '#131722', fontSize: '11px', fontWeight: 500,
+          background: changeColor, padding: '1px 6px', borderRadius: '3px',
+          display: 'inline-block',
+        }}>
           {quote ? `${isPositive ? '+' : ''}${quote.dp.toFixed(2)}%` : '—'}
         </span>
       </div>
@@ -48,10 +53,9 @@ export default function WatchlistRow({ symbol, name, active, onSelect, onRemove 
         <button
           onClick={e => { e.stopPropagation(); onRemove(); }}
           style={{
-            marginLeft: '8px', background: 'transparent', border: 'none', cursor: 'pointer',
-            color: '#4a5568', padding: '2px', lineHeight: 1, fontSize: '14px',
+            marginLeft: '4px', background: 'transparent', border: 'none',
+            color: '#787b86', padding: '0 2px', lineHeight: 1, fontSize: '14px',
           }}
-          title="Remove"
         >
           ×
         </button>

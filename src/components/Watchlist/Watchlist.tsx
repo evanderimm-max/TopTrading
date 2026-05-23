@@ -8,16 +8,21 @@ export default function Watchlist() {
   const removeFromWatchlist = useAppStore(s => s.removeFromWatchlist);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#131722' }}>
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid #1e2130', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ color: '#8892b0', fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>Watchlist</span>
-        <span style={{ color: '#4a5568', fontSize: '11px' }}>{watchlist.length}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Column headers */}
+      <div style={{
+        display: 'flex', padding: '6px 12px', borderBottom: '1px solid #2a2e39',
+        fontSize: '10px', color: '#787b86', textTransform: 'uppercase', letterSpacing: '0.05em',
+      }}>
+        <span style={{ flex: 1 }}>Symbol</span>
+        <span style={{ width: '70px', textAlign: 'right' }}>Last</span>
+        <span style={{ width: '60px', textAlign: 'right' }}>Chg%</span>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {watchlist.length === 0 ? (
-          <div style={{ padding: '20px', color: '#4a5568', fontSize: '12px', textAlign: 'center' }}>
-            Search for a symbol to add it
+          <div style={{ padding: '20px', color: '#787b86', fontSize: '12px', textAlign: 'center' }}>
+            Search to add symbols
           </div>
         ) : (
           watchlist.map(item => (

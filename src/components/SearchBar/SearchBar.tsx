@@ -31,56 +31,57 @@ export default function SearchBar() {
 
   useEffect(() => {
     function onClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
     }
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', width: '280px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', background: '#1e2130', borderRadius: '6px', padding: '0 10px', border: '1px solid #2d3350' }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7db3" strokeWidth="2" style={{ flexShrink: 0 }}>
+    <div ref={containerRef} style={{ position: 'relative', width: '220px' }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', background: '#131722',
+        borderRadius: '4px', padding: '0 8px', border: '1px solid #2a2e39', height: '26px',
+      }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#787b86" strokeWidth="2" style={{ flexShrink: 0 }}>
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
         </svg>
         <input
           value={query}
           onChange={handleChange}
           onFocus={() => query && setOpen(true)}
-          placeholder="Search symbols..."
+          placeholder="Search symbol..."
           style={{
             background: 'transparent', border: 'none', outline: 'none',
-            color: '#d1d5db', padding: '8px 8px', width: '100%', fontSize: '13px'
+            color: '#d1d4dc', padding: '0 6px', width: '100%', fontSize: '12px',
           }}
         />
-        {loading && <span style={{ color: '#6b7db3', fontSize: '11px' }}>...</span>}
+        {loading && <span style={{ color: '#787b86', fontSize: '10px' }}>...</span>}
       </div>
 
       {open && results.length > 0 && (
         <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-          background: '#1a1e2e', border: '1px solid #2d3350', borderRadius: '6px',
-          zIndex: 100, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.5)'
+          position: 'absolute', top: 'calc(100% + 2px)', left: 0, right: 0,
+          background: '#1e222d', border: '1px solid #2a2e39', borderRadius: '4px',
+          zIndex: 100, overflow: 'hidden', boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
         }}>
           {results.map(r => (
             <div
               key={r.symbol}
               onClick={() => handleSelect(r)}
               style={{
-                padding: '9px 14px', cursor: 'pointer', display: 'flex',
+                padding: '7px 12px', cursor: 'pointer', display: 'flex',
                 justifyContent: 'space-between', alignItems: 'center',
-                borderBottom: '1px solid #1e2130', transition: 'background 0.15s'
+                borderBottom: '1px solid #2a2e39',
               }}
-              onMouseEnter={e => (e.currentTarget.style.background = '#1e2130')}
+              onMouseEnter={e => (e.currentTarget.style.background = '#2a2e39')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
             >
               <div>
-                <span style={{ color: '#e2e8f0', fontWeight: 600, fontSize: '13px' }}>{r.displaySymbol}</span>
-                <span style={{ color: '#6b7db3', fontSize: '11px', marginLeft: '8px' }}>{r.description.slice(0, 30)}</span>
+                <span style={{ color: '#d1d4dc', fontWeight: 600, fontSize: '12px' }}>{r.displaySymbol}</span>
+                <span style={{ color: '#787b86', fontSize: '11px', marginLeft: '8px' }}>{r.description.slice(0, 28)}</span>
               </div>
-              <span style={{ color: '#4a5568', fontSize: '10px', background: '#2d3350', padding: '2px 6px', borderRadius: '3px' }}>{r.type}</span>
+              <span style={{ color: '#787b86', fontSize: '10px', background: '#131722', padding: '1px 4px', borderRadius: '2px' }}>{r.type}</span>
             </div>
           ))}
         </div>
