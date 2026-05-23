@@ -55,4 +55,13 @@ export interface WatchlistItem {
   name: string;
 }
 
-export type Timeframe = '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y';
+export type Timeframe = '15m' | '30m' | '1h' | '1D' | '1W' | '1M' | '3M' | '1Y' | '5Y';
+
+export type IndicatorType = 'SMA' | 'EMA' | 'RSI' | 'MACD' | 'BB';
+
+export interface IndicatorConfig {
+  id: string;
+  type: IndicatorType;
+  params: Record<string, number>;
+  color: string;
+}

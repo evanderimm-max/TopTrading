@@ -1,15 +1,25 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { WatchlistItem, Timeframe } from '../types';
+import type { WatchlistItem, Timeframe, IndicatorConfig } from '../types';
 
 interface AppState {
   activeSymbol: string;
   timeframe: Timeframe;
   watchlist: WatchlistItem[];
+  indicators: IndicatorConfig[];
   setActiveSymbol: (symbol: string, name?: string) => void;
   setTimeframe: (tf: Timeframe) => void;
   addToWatchlist: (item: WatchlistItem) => void;
   removeFromWatchlist: (symbol: string) => void;
+  addIndicator: (indicator: IndicatorConfig) => void;
+  removeIndicator: (id: string) => void;
+}
+
+const INDICATOR_COLORS = ['#2962ff', '#e91e63', '#ff9800', '#4caf50', '#9c27b0', '#00bcd4'];
+let nextColorIdx = 0;
+
+export function getNextColor() {
+  return INDICATOR_COLORS[nextColorIdx++ % INDICATOR_COLORS.length];
 }
 
 export const useAppStore = create<AppState>()(
@@ -24,12 +34,8 @@ export const useAppStore = create<AppState>()(
         { symbol: 'TSLA', name: 'Tesla Inc.' },
         { symbol: 'NVDA', name: 'NVIDIA Corp.' },
       ],
-      setActiveSymbol: (symbol, name) => {
-        set({ activeSymbol: symbol });
-        if (name && !get().watchlist.find(w => w.symbol === symbol)) {
-          // optionally auto-add — we do NOT auto-add here
-        }
-      },
+      indicators: [],
+      setActiveSymbol: (symbol) => set({ activeSymbol: symbol }),
       setTimeframe: (timeframe) => set({ timeframe }),
       addToWatchlist: (item) => {
         if (!get().watchlist.find(w => w.symbol === item.symbol)) {
@@ -38,6 +44,10 @@ export const useAppStore = create<AppState>()(
       },
       removeFromWatchlist: (symbol) =>
         set(s => ({ watchlist: s.watchlist.filter(w => w.symbol !== symbol) })),
+      addIndicator: (indicator) =>
+        set(s => ({ indicators: [...s.indicators, indicator] })),
+      removeIndicator: (id) =>
+        set(s => ({ indicators: s.indicators.filter(i => i.id !== id) })),
     }),
     { name: 'toptrading-store' }
   )

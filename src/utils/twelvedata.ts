@@ -5,6 +5,9 @@ const BASE = 'https://api.twelvedata.com';
 
 function mapTimeframe(tf: Timeframe): { interval: string; outputsize: number } {
   switch (tf) {
+    case '15m': return { interval: '1min',   outputsize: 15 };
+    case '30m': return { interval: '1min',   outputsize: 30 };
+    case '1h':  return { interval: '5min',   outputsize: 12 };
     case '1D':  return { interval: '5min',   outputsize: 78 };
     case '1W':  return { interval: '30min',  outputsize: 70 };
     case '1M':  return { interval: '1day',   outputsize: 22 };
