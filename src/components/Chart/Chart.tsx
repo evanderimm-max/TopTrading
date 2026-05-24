@@ -223,6 +223,7 @@ export default function Chart({ symbol }: Props) {
   const [activeDrawing, setActiveDrawing] = useState<ActiveDrawing | null>(null);
   const [savedDrawings, setSavedDrawings] = useState<Drawing[]>([]);
   const drawRef = useRef(false);
+  const activeDrawingDataRef = useRef<ActiveDrawing | null>(null);
 
   const indicatorResults = useMemo<IndicatorResult[]>(() => {
     if (candles.length === 0) return [];
@@ -422,34 +423,45 @@ export default function Chart({ symbol }: Props) {
     setActiveDrawing(null);
     setSavedDrawings([]);
     drawRef.current = false;
+    activeDrawingDataRef.current = null;
   }, [activeTool]);
 
-  // Unified drawing mouse handlers
-  const handleOverlayDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // Pointer event handlers — more reliable than mouse events (pointer capture keeps
+  // tracking even when cursor leaves the div or moves to the price axis)
+  const handleOverlayDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
     drawRef.current = true;
-    setActiveDrawing({ tool: activeTool, x1: x, y1: y, x2: x, y2: y });
+    const d: ActiveDrawing = { tool: activeTool, x1: x, y1: y, x2: x, y2: y };
+    activeDrawingDataRef.current = d;
+    setActiveDrawing(d);
   }, [activeTool]);
 
-  const handleOverlayMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!drawRef.current) return;
+  const handleOverlayMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!drawRef.current || !activeDrawingDataRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    setActiveDrawing(prev => prev ? { ...prev, x2: e.clientX - rect.left, y2: e.clientY - rect.top } : null);
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const updated: ActiveDrawing = { ...activeDrawingDataRef.current, x2: x, y2: y };
+    activeDrawingDataRef.current = updated;
+    setActiveDrawing(updated);
   }, []);
 
-  const handleOverlayUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!drawRef.current) return;
+  const handleOverlayUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!drawRef.current || !activeDrawingDataRef.current) return;
     drawRef.current = false;
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    setActiveDrawing(prev => {
-      if (!prev) return null;
-      // For hline, fix x so it's always the clicked y regardless of drag
-      const final: Drawing = { ...prev, x2: prev.tool === 'hline' ? x : x, y2: prev.tool === 'hline' ? prev.y1 : y, id: `${prev.tool}-${Date.now()}` };
-      setSavedDrawings(d => [...d, final]);
-      return null;
-    });
+    const prev = activeDrawingDataRef.current;
+    const final: Drawing = {
+      ...prev,
+      x2: x,
+      y2: prev.tool === 'hline' ? prev.y1 : y,
+      id: `${prev.tool}-${Date.now()}`,
+    };
+    activeDrawingDataRef.current = null;
+    setActiveDrawing(null);
+    setSavedDrawings(d => [...d, final]);
   }, []);
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
@@ -522,22 +534,21 @@ export default function Chart({ symbol }: Props) {
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
         {/* Always-on SVG layer for saved drawings (pointer-events: none so chart still pans) */}
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'hidden', pointerEvents: 'none', zIndex: 14 }}>
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 9999 }}>
           {savedDrawings.map(d => (
             <DrawingSVG key={d.id} d={d} cs={candleSeriesRef.current} measureMult={measureMultiplier} accent={accentColor} />
           ))}
         </svg>
 
-        {/* Active drawing overlay — captures mouse events when a drawing tool is active */}
+        {/* Active drawing overlay — captures pointer events when a drawing tool is active */}
         {isOverlayTool && (
           <div
-            style={{ position: 'absolute', inset: 0, zIndex: 15, cursor: 'crosshair', userSelect: 'none' }}
-            onMouseDown={handleOverlayDown}
-            onMouseMove={handleOverlayMove}
-            onMouseUp={handleOverlayUp}
-            onMouseLeave={handleOverlayUp}
+            style={{ position: 'absolute', inset: 0, zIndex: 10000, cursor: 'crosshair', userSelect: 'none', touchAction: 'none' }}
+            onPointerDown={handleOverlayDown}
+            onPointerMove={handleOverlayMove}
+            onPointerUp={handleOverlayUp}
           >
-            <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}>
               {activeDrawing && (
                 <DrawingSVG d={activeDrawing} cs={candleSeriesRef.current} measureMult={measureMultiplier} accent={accentColor} />
               )}
