@@ -19,50 +19,79 @@ export default function SearchBar() {
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(() => search(val), 300);
   }
+
   function handleSelect(r: SearchResult) {
     setActiveSymbol(r.symbol, r.description);
     addToWatchlist({ symbol: r.symbol, name: r.description });
     setQuery(''); setOpen(false); clear();
   }
+
   useEffect(() => {
-    function onClickOutside(e: MouseEvent) { if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false); }
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    }
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
   }, []);
 
   return (
     <div ref={containerRef} style={{ position: 'relative', width: '220px' }}>
+      {/* Input — neumorphic inset */}
       <div style={{
-        display: 'flex', alignItems: 'center',
-        background: 'var(--bg-input)', backdropFilter: 'blur(12px)',
-        borderRadius: 'var(--radius-xs)', padding: '0 8px', border: '1px solid var(--border-glass)', height: '28px',
-        transition: 'border-color 0.15s',
+        display: 'flex', alignItems: 'center', gap: '6px',
+        background: 'var(--bg-primary)',
+        borderRadius: 'var(--radius-xs)',
+        padding: '0 10px',
+        height: '30px',
+        boxShadow: 'var(--neu-in)',
+        border: '1px solid var(--border-glass)',
+        transition: 'box-shadow 0.2s',
       }}>
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="2" style={{ flexShrink: 0 }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" style={{ flexShrink: 0 }}>
           <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
         </svg>
-        <input value={query} onChange={handleChange} onFocus={() => query && setOpen(true)} placeholder="Search symbol..."
-          style={{ background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)', padding: '0 6px', width: '100%', fontSize: '12px' }} />
-        {loading && <span style={{ color: 'var(--text-muted)', fontSize: '10px' }}>...</span>}
+        <input
+          value={query}
+          onChange={handleChange}
+          onFocus={() => query && setOpen(true)}
+          placeholder="Search symbol…"
+          style={{
+            background: 'transparent', border: 'none', outline: 'none',
+            color: 'var(--text-primary)', width: '100%', fontSize: '12px',
+          }}
+        />
+        {loading && <span style={{ color: 'var(--text-muted)', fontSize: '10px', flexShrink: 0 }}>···</span>}
       </div>
 
+      {/* Dropdown */}
       {open && results.length > 0 && (
         <div style={{
-          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
-          background: 'var(--bg-glass)', backdropFilter: 'var(--glass-blur)', WebkitBackdropFilter: 'var(--glass-blur)',
-          border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-sm)',
-          zIndex: 100, overflow: 'hidden', boxShadow: 'var(--shadow-dropdown)',
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
+          background: 'var(--bg-primary)',
+          boxShadow: 'var(--shadow-dropdown)',
+          border: '1px solid var(--border-glass)',
+          borderRadius: 'var(--radius-sm)',
+          zIndex: 100, overflow: 'hidden',
         }}>
-          {results.map(r => (
+          {results.map((r, i) => (
             <div key={r.symbol} onClick={() => handleSelect(r)}
-              style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)' }}
+              style={{
+                padding: '9px 12px', cursor: 'pointer',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                borderBottom: i < results.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                transition: 'background 0.1s',
+              }}
               onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-glass-hover)')}
               onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
               <div>
                 <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '12px' }}>{r.displaySymbol}</span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: '11px', marginLeft: '8px' }}>{r.description.slice(0, 28)}</span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: '11px', marginLeft: '8px' }}>{r.description.slice(0, 26)}</span>
               </div>
-              <span style={{ color: 'var(--text-muted)', fontSize: '10px', background: 'var(--bg-input)', padding: '1px 5px', borderRadius: '3px' }}>{r.type}</span>
+              <span style={{
+                color: 'var(--text-muted)', fontSize: '9px', fontWeight: 600, letterSpacing: '0.05em',
+                background: 'var(--bg-glass)', border: '1px solid var(--border-glass)',
+                padding: '2px 6px', borderRadius: '4px', textTransform: 'uppercase',
+              }}>{r.type}</span>
             </div>
           ))}
         </div>

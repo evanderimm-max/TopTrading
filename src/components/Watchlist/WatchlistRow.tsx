@@ -11,9 +11,10 @@ export default function WatchlistRow({ symbol, name, active, onSelect, onRemove 
   return (
     <div onClick={onSelect} onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       style={{
-        display: 'flex', alignItems: 'center', padding: '7px 12px', cursor: 'pointer',
-        borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.12s',
-        background: active ? 'var(--bg-glass-active)' : hovered ? 'var(--bg-glass-hover)' : 'transparent',
+        display: 'flex', alignItems: 'center', padding: '8px 12px', cursor: 'pointer',
+        borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s',
+        background: active ? 'var(--accent-dim)' : hovered ? 'var(--bg-glass-hover)' : 'transparent',
+        borderLeft: active ? '2px solid var(--accent)' : '2px solid transparent',
       }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ color: 'var(--text-primary)', fontSize: '12px', fontWeight: 600 }}>{symbol}</div>

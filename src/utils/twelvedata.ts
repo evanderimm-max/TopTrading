@@ -5,15 +5,15 @@ const BASE = 'https://api.twelvedata.com';
 
 function mapTimeframe(tf: Timeframe): { interval: string; outputsize: number } {
   switch (tf) {
-    case '15m': return { interval: '1min',   outputsize: 15 };
-    case '30m': return { interval: '1min',   outputsize: 30 };
-    case '1h':  return { interval: '5min',   outputsize: 12 };
-    case '1D':  return { interval: '5min',   outputsize: 390 };
-    case '1W':  return { interval: '15min',  outputsize: 500 };
-    case '1M':  return { interval: '1day',   outputsize: 60 };
-    case '3M':  return { interval: '1day',   outputsize: 180 };
-    case '1Y':  return { interval: '1day',   outputsize: 365 };
-    case '5Y':  return { interval: '1week',  outputsize: 260 };
+    case '15m': return { interval: '15min', outputsize: 200 };
+    case '30m': return { interval: '30min', outputsize: 200 };
+    case '1h':  return { interval: '1h',    outputsize: 200 };
+    case '1D':  return { interval: '5min',  outputsize: 390 };
+    case '1W':  return { interval: '15min', outputsize: 650 };
+    case '1M':  return { interval: '1day',  outputsize: 60 };
+    case '3M':  return { interval: '1day',  outputsize: 180 };
+    case '1Y':  return { interval: '1day',  outputsize: 365 };
+    case '5Y':  return { interval: '1week', outputsize: 260 };
   }
 }
 

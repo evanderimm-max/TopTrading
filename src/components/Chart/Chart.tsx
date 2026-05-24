@@ -24,16 +24,16 @@ function fmtVol(n: number | undefined) {
 function getThemeColors(theme: string) {
   const dark = theme === 'dark';
   return {
-    bg: dark ? '#131722' : '#ffffff',
-    text: '#787b86',
-    grid: dark ? 'rgba(42,46,57,0.5)' : 'rgba(0,0,0,0.04)',
-    border: dark ? '#2a2e39' : '#e0e3eb',
-    crosshair: dark ? '#758696' : '#9598a1',
-    crosshairBg: dark ? '#2a2e39' : '#f0f3fa',
-    upColor: dark ? '#26a69a' : '#089981',
-    downColor: dark ? '#ef5350' : '#f23645',
-    volUp: dark ? 'rgba(38,166,154,0.25)' : 'rgba(8,153,129,0.18)',
-    volDown: dark ? 'rgba(239,83,80,0.25)' : 'rgba(242,54,69,0.18)',
+    bg:           dark ? '#131728' : '#ffffff',
+    text:         dark ? '#6b7098' : '#8892b0',
+    grid:         dark ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.035)',
+    border:       dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
+    crosshair:    dark ? '#6b7098' : '#9ba3c0',
+    crosshairBg:  dark ? '#1c2035' : '#e8ecf5',
+    upColor:      dark ? '#34d399' : '#059669',
+    downColor:    dark ? '#f87171' : '#dc2626',
+    volUp:        dark ? 'rgba(52,211,153,0.18)' : 'rgba(5,150,105,0.14)',
+    volDown:      dark ? 'rgba(248,113,113,0.18)' : 'rgba(220,38,38,0.14)',
   };
 }
 
