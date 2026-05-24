@@ -12,7 +12,6 @@ function fmt(n: number | undefined) {
   if (n === undefined || n === null) return '—';
   return n.toFixed(2);
 }
-
 function fmtVol(n: number | undefined) {
   if (!n) return '—';
   if (n >= 1e9) return (n / 1e9).toFixed(2) + 'B';
@@ -24,25 +23,173 @@ function fmtVol(n: number | undefined) {
 function getThemeColors(theme: string) {
   const dark = theme === 'dark';
   return {
-    bg:           dark ? '#131728' : '#ffffff',
-    text:         dark ? '#6b7098' : '#8892b0',
-    grid:         dark ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.035)',
-    border:       dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.08)',
-    crosshair:    dark ? '#6b7098' : '#9ba3c0',
-    crosshairBg:  dark ? '#1c2035' : '#e8ecf5',
-    upColor:      dark ? '#34d399' : '#059669',
-    downColor:    dark ? '#f87171' : '#dc2626',
-    volUp:        dark ? 'rgba(52,211,153,0.18)' : 'rgba(5,150,105,0.14)',
-    volDown:      dark ? 'rgba(248,113,113,0.18)' : 'rgba(220,38,38,0.14)',
+    bg:          dark ? '#131728' : '#ffffff',
+    text:        dark ? '#6b7098' : '#8892b0',
+    grid:        dark ? 'rgba(255,255,255,0.025)' : 'rgba(0,0,0,0.04)',
+    border:      dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
+    crosshair:   dark ? '#6b7098' : '#9ba3c0',
+    crosshairBg: dark ? '#1c2035' : '#f0f2fa',
+    upColor:     dark ? '#34d399' : '#059669',
+    downColor:   dark ? '#f87171' : '#dc2626',
+    volUp:       dark ? 'rgba(52,211,153,0.18)' : 'rgba(5,150,105,0.14)',
+    volDown:     dark ? 'rgba(248,113,113,0.18)' : 'rgba(220,38,38,0.14)',
   };
 }
 
-interface MeasureDrawing {
+// ── Drawing system ──────────────────────────────────────────────
+interface Drawing {
+  id: string;
+  tool: string;
   x1: number; y1: number;
   x2: number; y2: number;
-  done: boolean;
+}
+type ActiveDrawing = Omit<Drawing, 'id'>;
+
+const OVERLAY_TOOLS = new Set(['trendline', 'hline', 'channel', 'measure']);
+
+function extendLine(x1: number, y1: number, x2: number, y2: number) {
+  const L = 10000;
+  if (Math.abs(x2 - x1) < 0.5) return { x1, y1: -L, x2, y2: L };
+  const s = (y2 - y1) / (x2 - x1);
+  return { x1: -L, y1: y1 + s * (-L - x1), x2: L, y2: y1 + s * (L - x1) };
 }
 
+function perpLine(x1: number, y1: number, x2: number, y2: number, dist: number) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const px = -dy / len * dist, py = dx / len * dist;
+  return { x1: x1 + px, y1: y1 + py, x2: x2 + px, y2: y2 + py };
+}
+
+// Renders one drawing in SVG space
+function DrawingSVG({
+  d, cs, measureMult, accent,
+}: {
+  d: Drawing | ActiveDrawing;
+  cs: ISeriesApi<'Candlestick'> | null;
+  measureMult: number;
+  accent: string;
+}) {
+  const { x1, y1, x2, y2 } = d;
+
+  if (d.tool === 'trendline') {
+    const e = extendLine(x1, y1, x2, y2);
+    return (
+      <g>
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
+          stroke={accent} strokeWidth={1.8} strokeLinecap="round" opacity={0.9} />
+        <circle cx={x1} cy={y1} r={4} fill={accent} opacity={0.9} />
+        <circle cx={x2} cy={y2} r={4} fill={accent} opacity={0.9} />
+      </g>
+    );
+  }
+
+  if (d.tool === 'hline') {
+    const price = cs?.coordinateToPrice(y1) ?? null;
+    return (
+      <g>
+        <line x1={-10000} y1={y1} x2={10000} y2={y1}
+          stroke={accent} strokeWidth={1.5} strokeDasharray="8 5" opacity={0.85} />
+        {price !== null && (
+          <text x={6} y={y1 - 5} fill={accent} fontSize={10} fontFamily="monospace"
+            paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>
+            {price.toFixed(2)}
+          </text>
+        )}
+      </g>
+    );
+  }
+
+  if (d.tool === 'channel') {
+    const e1 = extendLine(x1, y1, x2, y2);
+    const p = perpLine(x1, y1, x2, y2, 60);
+    const e2 = extendLine(p.x1, p.y1, p.x2, p.y2);
+    return (
+      <g>
+        <polygon
+          points={`${e1.x1},${e1.y1} ${e1.x2},${e1.y2} ${e2.x2},${e2.y2} ${e2.x1},${e2.y1}`}
+          fill={accent} fillOpacity={0.07} />
+        <line x1={e1.x1} y1={e1.y1} x2={e1.x2} y2={e1.y2}
+          stroke={accent} strokeWidth={1.8} strokeLinecap="round" />
+        <line x1={e2.x1} y1={e2.y1} x2={e2.x2} y2={e2.y2}
+          stroke={accent} strokeWidth={1.2} strokeDasharray="6 4" opacity={0.75} />
+        <circle cx={x1} cy={y1} r={4} fill={accent} opacity={0.9} />
+        <circle cx={x2} cy={y2} r={4} fill={accent} opacity={0.9} />
+      </g>
+    );
+  }
+
+  if (d.tool === 'measure' && cs) {
+    const p1 = cs.coordinateToPrice(y1);
+    const p2 = cs.coordinateToPrice(y2);
+    if (p1 === null || p2 === null) return null;
+
+    const isUp = p2 > p1;
+    const color = isUp ? '#26a69a' : '#ef5350';
+    const fillColor = isUp ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
+    const extFill = isUp ? 'rgba(38,166,154,0.08)' : 'rgba(239,83,80,0.08)';
+
+    const pTarget = p1 + measureMult * (p2 - p1);
+    const yTarget = y1 + measureMult * (y2 - y1);
+    const xExt = x2 + (x2 - x1);
+    const pctMove = (p2 - p1) / p1 * 100;
+    const pctTarget = (pTarget - p1) / p1 * 100;
+
+    const bx = Math.min(x1, x2), by = Math.min(y1, y2);
+    const bw = Math.abs(x2 - x1), bh = Math.abs(y2 - y1);
+    const ex = Math.min(x2, xExt), ey = Math.min(y2, yTarget);
+    const ew = Math.abs(xExt - x2), eh = Math.abs(yTarget - y2);
+    const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+    const extMidX = (x2 + xExt) / 2, extMidY = (y2 + yTarget) / 2;
+
+    return (
+      <g>
+        {bw > 0 && bh > 0 && (
+          <rect x={bx} y={by} width={bw} height={bh}
+            fill={fillColor} stroke={color} strokeWidth={1} rx={2} />
+        )}
+        {ew > 0 && eh > 0 && (
+          <rect x={ex} y={ey} width={ew} height={eh}
+            fill={extFill} stroke={color} strokeWidth={1} strokeDasharray="5 3" rx={2} />
+        )}
+        {bw > 0 && (
+          <line x1={x2} y1={Math.min(by, ey)} x2={x2} y2={Math.max(by + bh, ey + eh)}
+            stroke={color} strokeWidth={1} strokeDasharray="3 2" opacity={0.5} />
+        )}
+        {bw > 40 && bh > 18 && (
+          <>
+            <rect x={midX - 34} y={midY - 10} width={68} height={18} rx={3} fill="rgba(0,0,0,0.55)" />
+            <text x={midX} y={midY + 5} textAnchor="middle"
+              fill={color} fontSize={11} fontWeight="bold" fontFamily="monospace">
+              {pctMove >= 0 ? '+' : ''}{pctMove.toFixed(2)}%
+            </text>
+          </>
+        )}
+        {ew > 40 && eh > 18 && (
+          <>
+            <rect x={extMidX - 44} y={extMidY - 10} width={88} height={18} rx={3} fill="rgba(0,0,0,0.55)" />
+            <text x={extMidX} y={extMidY + 5} textAnchor="middle"
+              fill={color} fontSize={11} fontWeight="bold" fontFamily="monospace">
+              {measureMult}x {pctTarget >= 0 ? '+' : ''}{pctTarget.toFixed(2)}%
+            </text>
+          </>
+        )}
+        <text x={x1 + 4} y={y1 - 5} fill={color} fontSize={10} fontFamily="monospace"
+          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>{p1.toFixed(2)}</text>
+        <text x={x2 + 4} y={y2 - 5} fill={color} fontSize={10} fontFamily="monospace"
+          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>{p2.toFixed(2)}</text>
+        <text x={ex + 4} y={yTarget - 5} fill={color} fontSize={10} fontFamily="monospace"
+          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>
+          {measureMult}x: {pTarget.toFixed(2)}
+        </text>
+      </g>
+    );
+  }
+
+  return null;
+}
+
+// ── Main component ───────────────────────────────────────────────
 export default function Chart({ symbol }: Props) {
   const timeframe = useAppStore(s => s.timeframe);
   const theme = useAppStore(s => s.theme);
@@ -72,9 +219,10 @@ export default function Chart({ symbol }: Props) {
   const [rpsReady, setRpsReady] = useState(false);
   const [legend, setLegend] = useState<{ o: number; h: number; l: number; c: number; v: number } | null>(null);
 
-  // Measure tool state
-  const [measureDrawing, setMeasureDrawing] = useState<MeasureDrawing | null>(null);
-  const measureActiveRef = useRef(false);
+  // Drawing tool state
+  const [activeDrawing, setActiveDrawing] = useState<ActiveDrawing | null>(null);
+  const [savedDrawings, setSavedDrawings] = useState<Drawing[]>([]);
+  const drawRef = useRef(false);
 
   const indicatorResults = useMemo<IndicatorResult[]>(() => {
     if (candles.length === 0) return [];
@@ -85,6 +233,7 @@ export default function Chart({ symbol }: Props) {
   const hasMACD = indicatorResults.some(r => r.type === 'MACD');
   const hasRPS = indicatorResults.some(r => r.type === 'RPS');
   const colors = useMemo(() => getThemeColors(theme), [theme]);
+  const accentColor = theme === 'dark' ? '#7c6bff' : '#5b54e8';
 
   const onCrosshairMove = useCallback((param: MouseEventParams) => {
     if (!param.time || !candleSeriesRef.current || !volumeSeriesRef.current) { setLegend(null); return; }
@@ -116,12 +265,8 @@ export default function Chart({ symbol }: Props) {
     const vs = chart.addHistogramSeries({ color: colors.upColor, priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
     chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     chart.subscribeCrosshairMove(onCrosshairMove);
-
-    chartRef.current = chart;
-    candleSeriesRef.current = cs;
-    volumeSeriesRef.current = vs;
+    chartRef.current = chart; candleSeriesRef.current = cs; volumeSeriesRef.current = vs;
     setChartReady(true);
-
     return () => {
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       chart.remove();
@@ -131,15 +276,13 @@ export default function Chart({ symbol }: Props) {
     };
   }, [onCrosshairMove, colors]);
 
-  // Subscribe to visible range changes for infinite scroll
+  // Infinite scroll subscription
   useEffect(() => {
     if (!chartReady || !chartRef.current) return;
     const chart = chartRef.current;
     const handler = () => {
       const range = chart.timeScale().getVisibleLogicalRange();
-      if (range && (range as unknown as { from: number }).from < 10) {
-        loadMoreHistory();
-      }
+      if (range && (range as unknown as { from: number }).from < 10) loadMoreHistory();
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
     return () => { chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler); };
@@ -149,8 +292,7 @@ export default function Chart({ symbol }: Props) {
   useEffect(() => {
     if (!hasRSI || !rsiContainerRef.current) {
       if (rsiChartRef.current) { rsiChartRef.current.remove(); rsiChartRef.current = null; rsiSeriesRef.current = []; }
-      setRsiReady(false);
-      return;
+      setRsiReady(false); return;
     }
     const chart = createChart(rsiContainerRef.current, {
       autoSize: true,
@@ -160,8 +302,7 @@ export default function Chart({ symbol }: Props) {
       timeScale: { visible: false },
       crosshair: { horzLine: { visible: false }, vertLine: { visible: false } },
     });
-    rsiChartRef.current = chart;
-    setRsiReady(true);
+    rsiChartRef.current = chart; setRsiReady(true);
     return () => { chart.remove(); rsiChartRef.current = null; rsiSeriesRef.current = []; setRsiReady(false); };
   }, [hasRSI, colors]);
 
@@ -169,8 +310,7 @@ export default function Chart({ symbol }: Props) {
   useEffect(() => {
     if (!hasMACD || !macdContainerRef.current) {
       if (macdChartRef.current) { macdChartRef.current.remove(); macdChartRef.current = null; macdSeriesRef.current = []; }
-      setMacdReady(false);
-      return;
+      setMacdReady(false); return;
     }
     const chart = createChart(macdContainerRef.current, {
       autoSize: true,
@@ -180,8 +320,7 @@ export default function Chart({ symbol }: Props) {
       timeScale: { visible: false },
       crosshair: { horzLine: { visible: false }, vertLine: { visible: false } },
     });
-    macdChartRef.current = chart;
-    setMacdReady(true);
+    macdChartRef.current = chart; setMacdReady(true);
     return () => { chart.remove(); macdChartRef.current = null; macdSeriesRef.current = []; setMacdReady(false); };
   }, [hasMACD, colors]);
 
@@ -189,8 +328,7 @@ export default function Chart({ symbol }: Props) {
   useEffect(() => {
     if (!hasRPS || !rpsContainerRef.current) {
       if (rpsChartRef.current) { rpsChartRef.current.remove(); rpsChartRef.current = null; rpsSeriesRef.current = []; }
-      setRpsReady(false);
-      return;
+      setRpsReady(false); return;
     }
     const chart = createChart(rpsContainerRef.current, {
       autoSize: true,
@@ -200,35 +338,29 @@ export default function Chart({ symbol }: Props) {
       timeScale: { visible: false },
       crosshair: { horzLine: { visible: false }, vertLine: { visible: false } },
     });
-    rpsChartRef.current = chart;
-    setRpsReady(true);
+    rpsChartRef.current = chart; setRpsReady(true);
     return () => { chart.remove(); rpsChartRef.current = null; rpsSeriesRef.current = []; setRpsReady(false); };
   }, [hasRPS, colors]);
 
-  // Set candle + volume data — preserves scroll position on history prepend
+  // Candle + volume data (preserves scroll on history prepend)
   useEffect(() => {
     if (!chartReady || !candleSeriesRef.current || !volumeSeriesRef.current) return;
     if (candles.length === 0) { candleSeriesRef.current.setData([]); volumeSeriesRef.current.setData([]); return; }
-
     const prependCount = prependedCountRef.current;
     prependedCountRef.current = 0;
     const isPrepend = prependCount > 0;
-
     let savedRange: { from: number; to: number } | null = null;
     if (isPrepend && chartRef.current) {
       const r = chartRef.current.timeScale().getVisibleLogicalRange();
       if (r) savedRange = { from: (r as unknown as { from: number }).from, to: (r as unknown as { to: number }).to };
     }
-
     candleSeriesRef.current.setData(candles.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close })));
     volumeSeriesRef.current.setData(candles.map(c => ({
       time: c.time as Time, value: c.volume,
       color: c.close >= c.open ? colors.volUp : colors.volDown,
     })));
-
     if (isPrepend && savedRange) {
-      const from = savedRange.from + prependCount;
-      const to = savedRange.to + prependCount;
+      const from = savedRange.from + prependCount, to = savedRange.to + prependCount;
       requestAnimationFrame(() => requestAnimationFrame(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (chartRef.current?.timeScale() as any)?.setVisibleLogicalRange({ from, to });
@@ -240,162 +372,103 @@ export default function Chart({ symbol }: Props) {
     }
   }, [candles, chartReady, colors, prependedCountRef]);
 
-  // Render all indicators
+  // Indicators
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !chartReady) return;
-
     overlaySeriesRef.current.forEach(s => { try { chart.removeSeries(s); } catch {} });
     overlaySeriesRef.current = [];
-    if (rsiChartRef.current) {
-      rsiSeriesRef.current.forEach(s => { try { rsiChartRef.current!.removeSeries(s); } catch {} });
-      rsiSeriesRef.current = [];
-    }
-    if (macdChartRef.current) {
-      macdSeriesRef.current.forEach(s => { try { macdChartRef.current!.removeSeries(s); } catch {} });
-      macdSeriesRef.current = [];
-    }
-    if (rpsChartRef.current) {
-      rpsSeriesRef.current.forEach(s => { try { rpsChartRef.current!.removeSeries(s); } catch {} });
-      rpsSeriesRef.current = [];
-    }
+    if (rsiChartRef.current) { rsiSeriesRef.current.forEach(s => { try { rsiChartRef.current!.removeSeries(s); } catch {} }); rsiSeriesRef.current = []; }
+    if (macdChartRef.current) { macdSeriesRef.current.forEach(s => { try { macdChartRef.current!.removeSeries(s); } catch {} }); macdSeriesRef.current = []; }
+    if (rpsChartRef.current) { rpsSeriesRef.current.forEach(s => { try { rpsChartRef.current!.removeSeries(s); } catch {} }); rpsSeriesRef.current = []; }
 
     for (const result of indicatorResults) {
       if (result.overlay) {
         for (const line of result.lines) {
           const s = chart.addLineSeries({ color: line.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-          s.setData(line.data);
-          overlaySeriesRef.current.push(s);
+          s.setData(line.data); overlaySeriesRef.current.push(s);
         }
       } else if (result.type === 'RSI' && rsiReady && rsiChartRef.current) {
         for (const line of result.lines) {
           const s = rsiChartRef.current.addLineSeries({ color: line.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
-          s.setData(line.data);
-          rsiSeriesRef.current.push(s);
+          s.setData(line.data); rsiSeriesRef.current.push(s);
         }
         if (result.lines[0]?.data.length > 1) {
           const pts = result.lines[0].data;
           const ob = rsiChartRef.current.addLineSeries({ color: colors.text + '30', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
           const os = rsiChartRef.current.addLineSeries({ color: colors.text + '30', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-          ob.setData(pts.map(p => ({ time: p.time, value: 70 })));
-          os.setData(pts.map(p => ({ time: p.time, value: 30 })));
+          ob.setData(pts.map(p => ({ time: p.time, value: 70 }))); os.setData(pts.map(p => ({ time: p.time, value: 30 })));
           rsiSeriesRef.current.push(ob, os);
         }
         rsiChartRef.current.timeScale().fitContent();
       } else if (result.type === 'MACD' && macdReady && macdChartRef.current) {
-        if (result.histogram) {
-          const h = macdChartRef.current.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
-          h.setData(result.histogram.data);
-          macdSeriesRef.current.push(h);
-        }
-        for (const line of result.lines) {
-          const s = macdChartRef.current.addLineSeries({ color: line.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
-          s.setData(line.data);
-          macdSeriesRef.current.push(s);
-        }
+        if (result.histogram) { const h = macdChartRef.current.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false }); h.setData(result.histogram.data); macdSeriesRef.current.push(h); }
+        for (const line of result.lines) { const s = macdChartRef.current.addLineSeries({ color: line.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true }); s.setData(line.data); macdSeriesRef.current.push(s); }
         macdChartRef.current.timeScale().fitContent();
       } else if (result.type === 'RPS' && rpsReady && rpsChartRef.current) {
-        for (const line of result.lines) {
-          const s = rpsChartRef.current.addLineSeries({ color: line.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true });
-          s.setData(line.data);
-          rpsSeriesRef.current.push(s);
-        }
+        for (const line of result.lines) { const s = rpsChartRef.current.addLineSeries({ color: line.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true }); s.setData(line.data); rpsSeriesRef.current.push(s); }
         if (result.lines[0]?.data.length > 1) {
           const pts = result.lines[0].data;
           const zl = rpsChartRef.current.addLineSeries({ color: colors.text + '30', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
-          zl.setData(pts.map(p => ({ time: p.time, value: 0 })));
-          rpsSeriesRef.current.push(zl);
+          zl.setData(pts.map(p => ({ time: p.time, value: 0 }))); rpsSeriesRef.current.push(zl);
         }
         rpsChartRef.current.timeScale().fitContent();
       }
     }
   }, [indicatorResults, chartReady, rsiReady, macdReady, rpsReady, colors]);
 
-  // Clear measure drawing when switching away from measure tool
+  // Clear drawings when tool changes (fresh start per tool session)
   useEffect(() => {
-    if (activeTool !== 'measure') {
-      setMeasureDrawing(null);
-      measureActiveRef.current = false;
-    }
+    setActiveDrawing(null);
+    setSavedDrawings([]);
+    drawRef.current = false;
   }, [activeTool]);
 
-  // Measure tool mouse handlers
-  const handleMeasureDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (activeTool !== 'measure') return;
+  // Unified drawing mouse handlers
+  const handleOverlayDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    measureActiveRef.current = true;
-    setMeasureDrawing({ x1: x, y1: y, x2: x, y2: y, done: false });
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    drawRef.current = true;
+    setActiveDrawing({ tool: activeTool, x1: x, y1: y, x2: x, y2: y });
   }, [activeTool]);
 
-  const handleMeasureMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!measureActiveRef.current) return;
+  const handleOverlayMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!drawRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setMeasureDrawing(prev => prev ? { ...prev, x2: x, y2: y } : null);
+    setActiveDrawing(prev => prev ? { ...prev, x2: e.clientX - rect.left, y2: e.clientY - rect.top } : null);
   }, []);
 
-  const handleMeasureUp = useCallback(() => {
-    measureActiveRef.current = false;
-    setMeasureDrawing(prev => prev ? { ...prev, done: true } : null);
+  const handleOverlayUp = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!drawRef.current) return;
+    drawRef.current = false;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    setActiveDrawing(prev => {
+      if (!prev) return null;
+      // For hline, fix x so it's always the clicked y regardless of drag
+      const final: Drawing = { ...prev, x2: prev.tool === 'hline' ? x : x, y2: prev.tool === 'hline' ? prev.y1 : y, id: `${prev.tool}-${Date.now()}` };
+      setSavedDrawings(d => [...d, final]);
+      return null;
+    });
   }, []);
-
-  // Compute measure visualization
-  const measureVis = useMemo(() => {
-    if (!measureDrawing || !candleSeriesRef.current) return null;
-    const md = measureDrawing;
-    const cs = candleSeriesRef.current;
-    const p1 = cs.coordinateToPrice(md.y1);
-    const p2 = cs.coordinateToPrice(md.y2);
-    if (p1 === null || p2 === null) return null;
-
-    const isUp = p2 > p1;
-    const color = isUp ? '#26a69a' : '#ef5350';
-    const fillColor = isUp ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
-    const extFill = isUp ? 'rgba(38,166,154,0.08)' : 'rgba(239,83,80,0.08)';
-
-    // Target price: P1 + M*(P2-P1)
-    const pTarget = p1 + measureMultiplier * (p2 - p1);
-    // Target y: y1 + M*(y2-y1)
-    const yTarget = md.y1 + measureMultiplier * (md.y2 - md.y1);
-    // Time extension: extend same duration to the right
-    const xExt = md.x2 + (md.x2 - md.x1);
-
-    const pctMove = ((p2 - p1) / p1 * 100);
-    const pctTarget = ((pTarget - p1) / p1 * 100);
-
-    // Measured box bounds
-    const bx = Math.min(md.x1, md.x2);
-    const by = Math.min(md.y1, md.y2);
-    const bw = Math.abs(md.x2 - md.x1);
-    const bh = Math.abs(md.y2 - md.y1);
-
-    // Extension box bounds
-    const ex = Math.min(md.x2, xExt);
-    const ey = Math.min(md.y2, yTarget);
-    const ew = Math.abs(xExt - md.x2);
-    const eh = Math.abs(yTarget - md.y2);
-
-    const midX = (md.x1 + md.x2) / 2;
-    const midY = (md.y1 + md.y2) / 2;
-    const extMidX = (md.x2 + xExt) / 2;
-    const extMidY = (md.y2 + yTarget) / 2;
-
-    return { md, isUp, color, fillColor, extFill, pTarget, yTarget, xExt, pctMove, pctTarget, bx, by, bw, bh, ex, ey, ew, eh, midX, midY, extMidX, extMidY, p1, p2 };
-  // Re-compute on every render when drawing changes (coordinateToPrice reads live chart state)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [measureDrawing, measureMultiplier]);
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
   const dl = legend || (lastCandle ? { o: lastCandle.open, h: lastCandle.high, l: lastCandle.low, c: lastCandle.close, v: lastCandle.volume } : null);
   const noData = !loading && !error && candles.length === 0;
+  const isOverlayTool = OVERLAY_TOOLS.has(activeTool);
+
+  const toolHints: Record<string, string> = {
+    trendline: 'Click & drag to draw a trend line',
+    hline: 'Click to place a horizontal price level',
+    channel: 'Click & drag to draw a parallel channel',
+    measure: `Click & drag to measure a price move · ${measureMultiplier}x multiplier`,
+  };
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-chart)' }}>
       <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-        {/* OHLCV + indicator legend */}
+
+        {/* OHLCV legend */}
         <div style={{
           position: 'absolute', top: '10px', left: '12px', zIndex: 20,
           display: 'flex', flexDirection: 'column', gap: '3px', fontSize: '11px',
@@ -425,7 +498,7 @@ export default function Chart({ symbol }: Props) {
           ))}
         </div>
 
-        {/* Loading more history indicator */}
+        {/* Loading more history */}
         {loadingMore && (
           <div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', zIndex: 25, background: 'var(--bg-glass)', backdropFilter: 'var(--glass-blur)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-xs)', padding: '4px 10px', fontSize: '11px', color: 'var(--text-secondary)' }}>
             Loading history…
@@ -444,101 +517,48 @@ export default function Chart({ symbol }: Props) {
             </span>
           </div>
         )}
+
+        {/* Lightweight-charts canvas */}
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-        {/* Measure Move tool overlay */}
-        {activeTool === 'measure' && (
+        {/* Always-on SVG layer for saved drawings (pointer-events: none so chart still pans) */}
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'hidden', pointerEvents: 'none', zIndex: 14 }}>
+          {savedDrawings.map(d => (
+            <DrawingSVG key={d.id} d={d} cs={candleSeriesRef.current} measureMult={measureMultiplier} accent={accentColor} />
+          ))}
+        </svg>
+
+        {/* Active drawing overlay — captures mouse events when a drawing tool is active */}
+        {isOverlayTool && (
           <div
             style={{ position: 'absolute', inset: 0, zIndex: 15, cursor: 'crosshair', userSelect: 'none' }}
-            onMouseDown={handleMeasureDown}
-            onMouseMove={handleMeasureMove}
-            onMouseUp={handleMeasureUp}
-            onMouseLeave={handleMeasureUp}
+            onMouseDown={handleOverlayDown}
+            onMouseMove={handleOverlayMove}
+            onMouseUp={handleOverlayUp}
+            onMouseLeave={handleOverlayUp}
           >
-            <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
-              {measureVis && (() => {
-                const v = measureVis;
-                return (
-                  <g>
-                    {/* Measured box */}
-                    {v.bw > 0 && v.bh > 0 && (
-                      <rect x={v.bx} y={v.by} width={v.bw} height={v.bh}
-                        fill={v.fillColor} stroke={v.color} strokeWidth={1} rx={2} />
-                    )}
-
-                    {/* Extension box */}
-                    {v.ew > 0 && v.eh > 0 && (
-                      <rect x={v.ex} y={v.ey} width={v.ew} height={v.eh}
-                        fill={v.extFill} stroke={v.color} strokeWidth={1} strokeDasharray="5 3" rx={2} />
-                    )}
-
-                    {/* Divider line between measured & extension */}
-                    {v.bw > 0 && (
-                      <line x1={v.md.x2} y1={Math.min(v.by, v.ey)} x2={v.md.x2} y2={Math.max(v.by + v.bh, v.ey + v.eh)}
-                        stroke={v.color} strokeWidth={1} strokeDasharray="3 2" opacity={0.5} />
-                    )}
-
-                    {/* Measured % label (center of measured box) */}
-                    {v.bw > 40 && v.bh > 18 && (
-                      <>
-                        <rect x={v.midX - 34} y={v.midY - 10} width={68} height={18} rx={3} fill="rgba(0,0,0,0.55)" />
-                        <text x={v.midX} y={v.midY + 5} textAnchor="middle"
-                          fill={v.color} fontSize={11} fontWeight="bold" fontFamily="monospace" style={{ userSelect: 'none' }}>
-                          {v.pctMove >= 0 ? '+' : ''}{v.pctMove.toFixed(2)}%
-                        </text>
-                      </>
-                    )}
-
-                    {/* Extension % label (center of extension box) */}
-                    {v.ew > 40 && v.eh > 18 && (
-                      <>
-                        <rect x={v.extMidX - 44} y={v.extMidY - 10} width={88} height={18} rx={3} fill="rgba(0,0,0,0.55)" />
-                        <text x={v.extMidX} y={v.extMidY + 5} textAnchor="middle"
-                          fill={v.color} fontSize={11} fontWeight="bold" fontFamily="monospace" style={{ userSelect: 'none' }}>
-                          {measureMultiplier}x {v.pctTarget >= 0 ? '+' : ''}{v.pctTarget.toFixed(2)}%
-                        </text>
-                      </>
-                    )}
-
-                    {/* Start price label */}
-                    <text x={v.md.x1 + 4} y={v.md.y1 - 5}
-                      fill={v.color} fontSize={10} fontFamily="monospace"
-                      stroke="rgba(0,0,0,0.5)" strokeWidth={3} paintOrder="stroke" style={{ userSelect: 'none' }}>
-                      {v.p1.toFixed(2)}
-                    </text>
-
-                    {/* End price label */}
-                    <text x={v.md.x2 + 4} y={v.md.y2 - 5}
-                      fill={v.color} fontSize={10} fontFamily="monospace"
-                      stroke="rgba(0,0,0,0.5)" strokeWidth={3} paintOrder="stroke" style={{ userSelect: 'none' }}>
-                      {v.p2.toFixed(2)}
-                    </text>
-
-                    {/* Target price label */}
-                    <text x={v.ex + 4} y={v.yTarget - 5}
-                      fill={v.color} fontSize={10} fontFamily="monospace"
-                      stroke="rgba(0,0,0,0.5)" strokeWidth={3} paintOrder="stroke" style={{ userSelect: 'none' }}>
-                      {measureMultiplier}x: {v.pTarget.toFixed(2)}
-                    </text>
-                  </g>
-                );
-              })()}
+            <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+              {activeDrawing && (
+                <DrawingSVG d={activeDrawing} cs={candleSeriesRef.current} measureMult={measureMultiplier} accent={accentColor} />
+              )}
             </svg>
 
-            {/* Active tool hint */}
-            {!measureDrawing && (
+            {/* Hint bar at the bottom */}
+            {!activeDrawing && (
               <div style={{
-                position: 'absolute', bottom: '36px', left: '50%', transform: 'translateX(-50%)',
+                position: 'absolute', bottom: '32px', left: '50%', transform: 'translateX(-50%)',
                 background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: '11px',
-                padding: '4px 12px', borderRadius: '4px', pointerEvents: 'none', whiteSpace: 'nowrap',
+                padding: '5px 14px', borderRadius: '6px', pointerEvents: 'none', whiteSpace: 'nowrap',
+                backdropFilter: 'blur(8px)',
               }}>
-                Click & drag to measure a price move · {measureMultiplier}x multiplier active
+                {toolHints[activeTool] ?? ''}
               </div>
             )}
           </div>
         )}
       </div>
 
+      {/* Sub-charts */}
       {hasRSI && (
         <div style={{ height: '100px', borderTop: '1px solid var(--border-glass)', position: 'relative', flexShrink: 0 }}>
           <div style={{ position: 'absolute', top: '4px', left: '8px', zIndex: 20, fontSize: '10px', pointerEvents: 'auto', display: 'flex', gap: '6px', alignItems: 'center', background: 'var(--bg-glass)', backdropFilter: 'var(--glass-blur)', padding: '2px 6px', borderRadius: '4px' }}>
@@ -550,7 +570,6 @@ export default function Chart({ symbol }: Props) {
           <div ref={rsiContainerRef} style={{ width: '100%', height: '100%' }} />
         </div>
       )}
-
       {hasMACD && (
         <div style={{ height: '100px', borderTop: '1px solid var(--border-glass)', position: 'relative', flexShrink: 0 }}>
           <div style={{ position: 'absolute', top: '4px', left: '8px', zIndex: 20, fontSize: '10px', pointerEvents: 'auto', display: 'flex', gap: '6px', alignItems: 'center', background: 'var(--bg-glass)', backdropFilter: 'var(--glass-blur)', padding: '2px 6px', borderRadius: '4px' }}>
@@ -562,7 +581,6 @@ export default function Chart({ symbol }: Props) {
           <div ref={macdContainerRef} style={{ width: '100%', height: '100%' }} />
         </div>
       )}
-
       {hasRPS && (
         <div style={{ height: '100px', borderTop: '1px solid var(--border-glass)', position: 'relative', flexShrink: 0 }}>
           <div style={{ position: 'absolute', top: '4px', left: '8px', zIndex: 20, fontSize: '10px', pointerEvents: 'auto', display: 'flex', gap: '6px', alignItems: 'center', background: 'var(--bg-glass)', backdropFilter: 'var(--glass-blur)', padding: '2px 6px', borderRadius: '4px' }}>

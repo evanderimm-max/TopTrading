@@ -54,33 +54,34 @@
   --radius-xs: 7px;
 }
 
-/* ─── LIGHT ─── */
+/* ─── LIGHT (white neumorphic base) ─── */
 [data-theme="light"] {
-  --bg-primary:     #e6e9f5;
-  --bg-surface:     #eceef8;
+  /* Pure white neumorphic palette */
+  --bg-primary:     #f0f2fa;
+  --bg-surface:     #f8f9ff;
   --bg-chart:       #ffffff;
-  --bg-glass-solid: #f0f3fc;
+  --bg-glass-solid: #ffffff;
 
-  --neu-out:    6px 6px 14px #c8cbd8, -4px -4px 10px #ffffff;
-  --neu-out-sm: 3px 3px 8px  #c8cbd8, -2px -2px 6px  #ffffff;
-  --neu-in:     inset 3px 3px 8px #c8cbd8, inset -2px -2px 5px #ffffff;
-  --neu-flat:   2px 2px 5px #c8cbd8, -1px -1px 4px #ffffff;
+  --neu-out:    6px 6px 14px #cccfe0, -4px -4px 10px #ffffff;
+  --neu-out-sm: 3px 3px 8px  #cccfe0, -2px -2px 6px  #ffffff;
+  --neu-in:     inset 3px 3px 8px #cccfe0, inset -2px -2px 5px #ffffff;
+  --neu-flat:   2px 2px 5px #cccfe0, -1px -1px 4px #ffffff;
 
-  --bg-glass:       rgba(255,255,255,0.68);
-  --bg-glass-hover: rgba(255,255,255,0.84);
-  --bg-glass-active:rgba(255,255,255,0.96);
-  --bg-input:       rgba(255,255,255,0.75);
-  --glass-blur:     blur(28px) saturate(200%);
-  --border-glass:   rgba(255,255,255,0.90);
-  --border-subtle:  rgba(0,0,0,0.04);
+  --bg-glass:       rgba(255,255,255,0.78);
+  --bg-glass-hover: rgba(255,255,255,0.92);
+  --bg-glass-active:rgba(255,255,255,1.0);
+  --bg-input:       rgba(255,255,255,0.90);
+  --glass-blur:     blur(28px) saturate(180%);
+  --border-glass:   rgba(200,203,220,0.60);
+  --border-subtle:  rgba(0,0,0,0.05);
 
   --accent:     #5b54e8;
-  --accent-dim: rgba(91,84,232,0.12);
-  --accent-glow:0 4px 20px rgba(91,84,232,0.30);
+  --accent-dim: rgba(91,84,232,0.10);
+  --accent-glow:0 4px 20px rgba(91,84,232,0.28);
 
   --text-primary:   #1a1f35;
   --text-secondary: #6b7094;
-  --text-muted:     #9fa5c0;
+  --text-muted:     #a0a5c0;
 
   --green:    #059669;
   --red:      #dc2626;
@@ -89,9 +90,9 @@
   --vol-up:   rgba(5,150,105,0.15);
   --vol-down: rgba(220,38,38,0.15);
 
-  --shadow-glass:    0 8px 32px rgba(0,0,0,0.07), inset 0 1px 0 rgba(255,255,255,0.9);
-  --shadow-dropdown: 0 20px 60px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.05);
-  --shadow-modal:    0 30px 80px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06);
+  --shadow-glass:    0 4px 20px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,1);
+  --shadow-dropdown: 0 16px 48px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.05);
+  --shadow-modal:    0 24px 72px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.06);
 }
 
 /* ─── GLOBAL ─── */

@@ -11,28 +11,48 @@ export default function App() {
   const theme = useAppStore(s => s.theme);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [bottomPanelOpen, setBottomPanelOpen] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const audioBufferRef = useRef<AudioBuffer | null>(null);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  // Load audio via Web Audio API so we can apply 4x gain boost
   useEffect(() => {
-    audioRef.current = new Audio('/click.mp3');
-    audioRef.current.volume = 0.4;
+    const ctx = new AudioContext();
+    audioCtxRef.current = ctx;
+    fetch('/click.mp3')
+      .then(r => r.arrayBuffer())
+      .then(buf => ctx.decodeAudioData(buf))
+      .then(decoded => { audioBufferRef.current = decoded; })
+      .catch(() => {});
+    return () => { ctx.close(); };
   }, []);
 
   const playClick = useCallback(() => {
-    if (!audioRef.current) return;
-    audioRef.current.currentTime = 0;
-    audioRef.current.play().catch(() => {/* ignore autoplay policy */});
+    const ctx = audioCtxRef.current;
+    const buf = audioBufferRef.current;
+    if (!ctx || !buf) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const source = ctx.createBufferSource();
+    source.buffer = buf;
+    const gain = ctx.createGain();
+    gain.gain.value = 4; // 400% volume boost
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
   }, []);
 
+  // Global listener — catches every mousedown including sidebar / links
+  useEffect(() => {
+    document.addEventListener('mousedown', playClick);
+    return () => document.removeEventListener('mousedown', playClick);
+  }, [playClick]);
+
   return (
-    <div
-      style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-primary)', overflow: 'hidden' }}
-      onMouseDown={playClick}
-    >
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: 'var(--bg-primary)', overflow: 'hidden' }}>
       <TopToolbar
         symbol={activeSymbol}
         onToggleRightPanel={() => setRightPanelOpen(p => !p)}
@@ -42,7 +62,7 @@ export default function App() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <LeftToolbar />
         <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minWidth: 0 }}>
-          <div style={{ flex: 1, overflow: 'hidden', position: 'relative', boxShadow: 'var(--neu-in)', margin: '0', borderRadius: '0' }}>
+          <div style={{ flex: 1, overflow: 'hidden', position: 'relative', boxShadow: 'var(--neu-in)' }}>
             <Chart symbol={activeSymbol} />
           </div>
           {bottomPanelOpen && <BottomPanel symbol={activeSymbol} />}

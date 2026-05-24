@@ -30,7 +30,7 @@ export const useAppStore = create<AppState>()(
     (set, get) => ({
       activeSymbol: 'AAPL',
       timeframe: '1M',
-      theme: 'dark',
+      theme: 'light',
       watchlist: [
         { symbol: 'AAPL', name: 'Apple Inc.' },
         { symbol: 'GOOGL', name: 'Alphabet Inc.' },
