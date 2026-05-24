@@ -37,15 +37,14 @@ function getThemeColors(theme: string) {
 }
 
 // ── Drawing system ──────────────────────────────────────────────
-interface Drawing {
-  id: string;
-  tool: string;
-  x1: number; y1: number;
-  x2: number; y2: number;
-}
-type ActiveDrawing = Omit<Drawing, 'id'>;
+interface Pt { x: number; y: number; }
+interface Drawing { id: string; tool: string; pts: Pt[]; }
+type Pending = { tool: string; clicks: Pt[]; mx: number; my: number; } | null;
 
-const OVERLAY_TOOLS = new Set(['trendline', 'hline', 'channel', 'measure']);
+// Tools that finalize on mouseup (drag) vs tools that need N clicks
+const DRAG_TOOLS  = new Set(['measure']);
+const CLICKS_FOR: Record<string, number> = { hline: 1, trendline: 2, fib: 2, rect: 2, channel: 3 };
+const ALL_DRAW_TOOLS = new Set([...DRAG_TOOLS, ...Object.keys(CLICKS_FOR)]);
 
 function extendLine(x1: number, y1: number, x2: number, y2: number) {
   const L = 10000;
@@ -54,45 +53,46 @@ function extendLine(x1: number, y1: number, x2: number, y2: number) {
   return { x1: -L, y1: y1 + s * (-L - x1), x2: L, y2: y1 + s * (L - x1) };
 }
 
-function perpLine(x1: number, y1: number, x2: number, y2: number, dist: number) {
-  const dx = x2 - x1, dy = y2 - y1;
-  const len = Math.sqrt(dx * dx + dy * dy) || 1;
-  const px = -dy / len * dist, py = dx / len * dist;
-  return { x1: x1 + px, y1: y1 + py, x2: x2 + px, y2: y2 + py };
+function toolColor(tool: string, dark: boolean): string {
+  switch (tool) {
+    case 'trendline': return dark ? '#e2e8ff' : '#0f172a';  // near-black / near-white
+    case 'hline':     return '#ef4444';
+    case 'channel':   return '#3b82f6';
+    case 'fib':       return '#f59e0b';
+    case 'rect':      return '#06b6d4';
+    default:          return dark ? '#7c6bff' : '#5b54e8';
+  }
 }
 
-// Renders one drawing in SVG space
-function DrawingSVG({
-  d, cs, measureMult, accent,
-}: {
-  d: Drawing | ActiveDrawing;
-  cs: ISeriesApi<'Candlestick'> | null;
-  measureMult: number;
-  accent: string;
+// Renders a SAVED drawing (permanent)
+function SavedDrawing({ d, cs, measureMult, dark }: {
+  d: Drawing; cs: ISeriesApi<'Candlestick'> | null; measureMult: number; dark: boolean;
 }) {
-  const { x1, y1, x2, y2 } = d;
+  const { tool, pts } = d;
+  const col = toolColor(tool, dark);
+  const [p1, p2, p3] = pts;
+  if (!p1) return null;
 
-  if (d.tool === 'trendline') {
-    const e = extendLine(x1, y1, x2, y2);
+  if (tool === 'trendline') {
+    if (!p2) return null;
+    const e = extendLine(p1.x, p1.y, p2.x, p2.y);
     return (
       <g>
-        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
-          stroke={accent} strokeWidth={1.8} strokeLinecap="round" opacity={0.9} />
-        <circle cx={x1} cy={y1} r={4} fill={accent} opacity={0.9} />
-        <circle cx={x2} cy={y2} r={4} fill={accent} opacity={0.9} />
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={col} strokeWidth={1.8} strokeLinecap="round" />
+        <circle cx={p1.x} cy={p1.y} r={4} fill={col} />
+        <circle cx={p2.x} cy={p2.y} r={4} fill={col} />
       </g>
     );
   }
 
-  if (d.tool === 'hline') {
-    const price = cs?.coordinateToPrice(y1) ?? null;
+  if (tool === 'hline') {
+    const price = cs?.coordinateToPrice(p1.y) ?? null;
     return (
       <g>
-        <line x1={-10000} y1={y1} x2={10000} y2={y1}
-          stroke={accent} strokeWidth={1.5} strokeDasharray="8 5" opacity={0.85} />
+        <line x1={-10000} y1={p1.y} x2={10000} y2={p1.y} stroke={col} strokeWidth={1.5} strokeDasharray="8 4" />
         {price !== null && (
-          <text x={6} y={y1 - 5} fill={accent} fontSize={10} fontFamily="monospace"
-            paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>
+          <text x={8} y={p1.y - 5} fill={col} fontSize={10} fontFamily="monospace"
+            paintOrder="stroke" stroke={dark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)'} strokeWidth={3}>
             {price.toFixed(2)}
           </text>
         )}
@@ -100,132 +100,198 @@ function DrawingSVG({
     );
   }
 
-  if (d.tool === 'channel') {
-    const e1 = extendLine(x1, y1, x2, y2);
-    const p = perpLine(x1, y1, x2, y2, 60);
-    const e2 = extendLine(p.x1, p.y1, p.x2, p.y2);
-    return (
-      <g>
-        <polygon
-          points={`${e1.x1},${e1.y1} ${e1.x2},${e1.y2} ${e2.x2},${e2.y2} ${e2.x1},${e2.y1}`}
-          fill={accent} fillOpacity={0.07} />
-        <line x1={e1.x1} y1={e1.y1} x2={e1.x2} y2={e1.y2}
-          stroke={accent} strokeWidth={1.8} strokeLinecap="round" />
-        <line x1={e2.x1} y1={e2.y1} x2={e2.x2} y2={e2.y2}
-          stroke={accent} strokeWidth={1.2} strokeDasharray="6 4" opacity={0.75} />
-        <circle cx={x1} cy={y1} r={4} fill={accent} opacity={0.9} />
-        <circle cx={x2} cy={y2} r={4} fill={accent} opacity={0.9} />
-      </g>
-    );
-  }
-
-  if (d.tool === 'measure' && cs) {
-    const p1 = cs.coordinateToPrice(y1);
-    const p2 = cs.coordinateToPrice(y2);
-    if (p1 === null || p2 === null) return null;
-
-    const isUp = p2 > p1;
-    const color = isUp ? '#26a69a' : '#ef5350';
-    const fillColor = isUp ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
-    const extFill = isUp ? 'rgba(38,166,154,0.08)' : 'rgba(239,83,80,0.08)';
-
-    const pTarget = p1 + measureMult * (p2 - p1);
-    const yTarget = y1 + measureMult * (y2 - y1);
-    const xExt = x2 + (x2 - x1);
-    const pctMove = (p2 - p1) / p1 * 100;
-    const pctTarget = (pTarget - p1) / p1 * 100;
-
-    const bx = Math.min(x1, x2), by = Math.min(y1, y2);
-    const bw = Math.abs(x2 - x1), bh = Math.abs(y2 - y1);
-    const ex = Math.min(x2, xExt), ey = Math.min(y2, yTarget);
-    const ew = Math.abs(xExt - x2), eh = Math.abs(yTarget - y2);
-    const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
-    const extMidX = (x2 + xExt) / 2, extMidY = (y2 + yTarget) / 2;
-
-    return (
-      <g>
-        {bw > 0 && bh > 0 && (
-          <rect x={bx} y={by} width={bw} height={bh}
-            fill={fillColor} stroke={color} strokeWidth={1} rx={2} />
-        )}
-        {ew > 0 && eh > 0 && (
-          <rect x={ex} y={ey} width={ew} height={eh}
-            fill={extFill} stroke={color} strokeWidth={1} strokeDasharray="5 3" rx={2} />
-        )}
-        {bw > 0 && (
-          <line x1={x2} y1={Math.min(by, ey)} x2={x2} y2={Math.max(by + bh, ey + eh)}
-            stroke={color} strokeWidth={1} strokeDasharray="3 2" opacity={0.5} />
-        )}
-        {bw > 40 && bh > 18 && (
-          <>
-            <rect x={midX - 34} y={midY - 10} width={68} height={18} rx={3} fill="rgba(0,0,0,0.55)" />
-            <text x={midX} y={midY + 5} textAnchor="middle"
-              fill={color} fontSize={11} fontWeight="bold" fontFamily="monospace">
-              {pctMove >= 0 ? '+' : ''}{pctMove.toFixed(2)}%
-            </text>
-          </>
-        )}
-        {ew > 40 && eh > 18 && (
-          <>
-            <rect x={extMidX - 44} y={extMidY - 10} width={88} height={18} rx={3} fill="rgba(0,0,0,0.55)" />
-            <text x={extMidX} y={extMidY + 5} textAnchor="middle"
-              fill={color} fontSize={11} fontWeight="bold" fontFamily="monospace">
-              {measureMult}x {pctTarget >= 0 ? '+' : ''}{pctTarget.toFixed(2)}%
-            </text>
-          </>
-        )}
-        <text x={x1 + 4} y={y1 - 5} fill={color} fontSize={10} fontFamily="monospace"
-          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>{p1.toFixed(2)}</text>
-        <text x={x2 + 4} y={y2 - 5} fill={color} fontSize={10} fontFamily="monospace"
-          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>{p2.toFixed(2)}</text>
-        <text x={ex + 4} y={yTarget - 5} fill={color} fontSize={10} fontFamily="monospace"
-          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>
-          {measureMult}x: {pTarget.toFixed(2)}
-        </text>
-      </g>
-    );
-  }
-
-  return null;
-}
-
-// Simplified live-drawing renderer — just shows the shape while dragging
-function ActiveLineSVG({ x1, y1, x2, y2, tool, accent }: { x1: number; y1: number; x2: number; y2: number; tool: string; accent: string }) {
-  if (tool === 'hline') {
-    return <line x1={-10000} y1={y1} x2={10000} y2={y1} stroke={accent} strokeWidth={1.5} strokeDasharray="8 5" opacity={0.85} />;
-  }
-  if (tool === 'trendline') {
-    const e = extendLine(x1, y1, x2, y2);
-    return (
-      <g>
-        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={accent} strokeWidth={1.8} strokeLinecap="round" opacity={0.9} />
-        <circle cx={x1} cy={y1} r={4} fill={accent} opacity={0.9} />
-        <circle cx={x2} cy={y2} r={4} fill={accent} opacity={0.9} />
-      </g>
-    );
-  }
   if (tool === 'channel') {
-    const e1 = extendLine(x1, y1, x2, y2);
-    const p = perpLine(x1, y1, x2, y2, 60);
-    const e2 = extendLine(p.x1, p.y1, p.x2, p.y2);
+    if (!p2) return null;
+    const e1 = extendLine(p1.x, p1.y, p2.x, p2.y);
+    const dx = p2.x - p1.x, dy = p2.y - p1.y;
+    // Third click: parallel through p3 (or default offset if missing)
+    const ref = p3 ?? { x: p1.x, y: p1.y - 60 };
+    const e2 = extendLine(ref.x, ref.y, ref.x + dx, ref.y + dy);
     return (
       <g>
-        <polygon points={`${e1.x1},${e1.y1} ${e1.x2},${e1.y2} ${e2.x2},${e2.y2} ${e2.x1},${e2.y1}`} fill={accent} fillOpacity={0.07} />
-        <line x1={e1.x1} y1={e1.y1} x2={e1.x2} y2={e1.y2} stroke={accent} strokeWidth={1.8} />
-        <line x1={e2.x1} y1={e2.y1} x2={e2.x2} y2={e2.y2} stroke={accent} strokeWidth={1.2} strokeDasharray="6 4" opacity={0.75} />
+        <polygon points={`${e1.x1},${e1.y1} ${e1.x2},${e1.y2} ${e2.x2},${e2.y2} ${e2.x1},${e2.y1}`}
+          fill={col} fillOpacity={0.06} />
+        <line x1={e1.x1} y1={e1.y1} x2={e1.x2} y2={e1.y2} stroke={col} strokeWidth={1.8} />
+        <line x1={e2.x1} y1={e2.y1} x2={e2.x2} y2={e2.y2} stroke={col} strokeWidth={1.5} strokeDasharray="6 4" opacity={0.85} />
+        <circle cx={p1.x} cy={p1.y} r={4} fill={col} />
+        <circle cx={p2.x} cy={p2.y} r={4} fill={col} />
       </g>
     );
   }
+
+  if (tool === 'fib') {
+    if (!p2) return null;
+    const LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+    const dy = p2.y - p1.y;
+    const pr1 = cs?.coordinateToPrice(p1.y) ?? null;
+    const pr2 = cs?.coordinateToPrice(p2.y) ?? null;
+    return (
+      <g>
+        {LEVELS.map(lv => {
+          const ly = p1.y + lv * dy;
+          const price = pr1 !== null && pr2 !== null ? pr1 + lv * (pr2 - pr1) : null;
+          const opacity = lv === 0 || lv === 1 ? 1 : 0.75;
+          return (
+            <g key={lv}>
+              <line x1={-10000} y1={ly} x2={10000} y2={ly} stroke={col} strokeWidth={1} opacity={opacity} />
+              <text x={8} y={ly - 4} fill={col} fontSize={9} fontFamily="monospace" opacity={0.9}
+                paintOrder="stroke" stroke={dark ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.7)'} strokeWidth={2}>
+                {(lv * 100).toFixed(1)}%{price !== null ? `  ${price.toFixed(2)}` : ''}
+              </text>
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
+  if (tool === 'rect') {
+    if (!p2) return null;
+    const bx = Math.min(p1.x, p2.x), by = Math.min(p1.y, p2.y);
+    const bw = Math.abs(p2.x - p1.x), bh = Math.abs(p2.y - p1.y);
+    return <rect x={bx} y={by} width={bw} height={bh} fill={col} fillOpacity={0.1} stroke={col} strokeWidth={1.5} rx={2} />;
+  }
+
   if (tool === 'measure') {
-    const isUp = y2 < y1;
+    if (!p2 || !cs) return null;
+    const pr1 = cs.coordinateToPrice(p1.y);
+    const pr2 = cs.coordinateToPrice(p2.y);
+    if (pr1 === null || pr2 === null) return null;
+    const isUp = pr2 > pr1;
     const color = isUp ? '#26a69a' : '#ef5350';
-    const fill = isUp ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
-    const bx = Math.min(x1, x2), by = Math.min(y1, y2);
-    const bw = Math.abs(x2 - x1), bh = Math.abs(y2 - y1);
-    return <rect x={bx} y={by} width={Math.max(bw, 1)} height={Math.max(bh, 1)} fill={fill} stroke={color} strokeWidth={1} rx={2} />;
+    const fillM = isUp ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
+    const fillE = isUp ? 'rgba(38,166,154,0.08)' : 'rgba(239,83,80,0.08)';
+    const pct = (pr2 - pr1) / pr1 * 100;
+    const prT = pr1 + measureMult * (pr2 - pr1);
+    const yT = p1.y + measureMult * (p2.y - p1.y);
+    const xE = p2.x + (p2.x - p1.x);
+    const pctT = (prT - pr1) / pr1 * 100;
+    const bx = Math.min(p1.x, p2.x), by = Math.min(p1.y, p2.y);
+    const bw = Math.abs(p2.x - p1.x), bh = Math.abs(p2.y - p1.y);
+    const ex = Math.min(p2.x, xE), ey = Math.min(p2.y, yT);
+    const ew = Math.abs(xE - p2.x), eh = Math.abs(yT - p2.y);
+    const mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+    const emx = (p2.x + xE) / 2, emy = (p2.y + yT) / 2;
+    return (
+      <g>
+        {bw > 0 && bh > 0 && <rect x={bx} y={by} width={bw} height={bh} fill={fillM} stroke={color} strokeWidth={1} rx={2} />}
+        {ew > 0 && eh > 0 && <rect x={ex} y={ey} width={ew} height={eh} fill={fillE} stroke={color} strokeWidth={1} strokeDasharray="5 3" rx={2} />}
+        {bw > 0 && <line x1={p2.x} y1={Math.min(by, ey)} x2={p2.x} y2={Math.max(by + bh, ey + eh)} stroke={color} strokeWidth={1} strokeDasharray="3 2" opacity={0.5} />}
+        {bw > 40 && bh > 16 && <>
+          <rect x={mx - 36} y={my - 10} width={72} height={18} rx={3} fill="rgba(0,0,0,0.6)" />
+          <text x={mx} y={my + 5} textAnchor="middle" fill={color} fontSize={11} fontWeight="bold" fontFamily="monospace">
+            {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+          </text>
+        </>}
+        {ew > 40 && eh > 16 && <>
+          <rect x={emx - 46} y={emy - 10} width={92} height={18} rx={3} fill="rgba(0,0,0,0.6)" />
+          <text x={emx} y={emy + 5} textAnchor="middle" fill={color} fontSize={11} fontWeight="bold" fontFamily="monospace">
+            {measureMult}x {pctT >= 0 ? '+' : ''}{pctT.toFixed(2)}%
+          </text>
+        </>}
+        <text x={p1.x + 4} y={p1.y - 5} fill={color} fontSize={10} fontFamily="monospace"
+          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>{pr1.toFixed(2)}</text>
+        <text x={p2.x + 4} y={p2.y - 5} fill={color} fontSize={10} fontFamily="monospace"
+          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>{pr2.toFixed(2)}</text>
+        <text x={ex + 4} y={yT - 5} fill={color} fontSize={10} fontFamily="monospace"
+          paintOrder="stroke" stroke="rgba(0,0,0,0.5)" strokeWidth={3}>{measureMult}x: {prT.toFixed(2)}</text>
+      </g>
+    );
   }
   return null;
 }
+
+// Renders the in-progress drawing while the user is drawing
+function PendingPreview({ p, dark }: { p: Pending; dark: boolean }) {
+  if (!p) return null;
+  const { tool, clicks, mx, my } = p;
+  const col = toolColor(tool, dark);
+  const c0 = clicks[0], c1 = clicks[1];
+
+  if (tool === 'measure') {
+    // Drag: c0 = mousedown, mx/my = current pos
+    if (!c0) return null;
+    const isUp = my < c0.y;
+    const color = isUp ? '#26a69a' : '#ef5350';
+    const fill  = isUp ? 'rgba(38,166,154,0.18)' : 'rgba(239,83,80,0.18)';
+    const bx = Math.min(c0.x, mx), by = Math.min(c0.y, my);
+    const bw = Math.max(Math.abs(mx - c0.x), 1), bh = Math.max(Math.abs(my - c0.y), 1);
+    return <rect x={bx} y={by} width={bw} height={bh} fill={fill} stroke={color} strokeWidth={1.5} rx={2} />;
+  }
+
+  if (tool === 'trendline') {
+    if (!c0) return null;
+    // After 1st click, show dashed preview to cursor
+    const e = extendLine(c0.x, c0.y, mx, my);
+    return (
+      <g>
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={col} strokeWidth={1.8} strokeDasharray="8 4" />
+        <circle cx={c0.x} cy={c0.y} r={5} fill={col} />
+        <circle cx={mx} cy={my} r={4} fill={col} opacity={0.6} />
+      </g>
+    );
+  }
+
+  if (tool === 'hline') {
+    if (!c0) return null;
+    return <line x1={-10000} y1={c0.y} x2={10000} y2={c0.y} stroke={col} strokeWidth={1.5} strokeDasharray="8 4" />;
+  }
+
+  if (tool === 'channel') {
+    if (!c0) return null;
+    if (!c1) {
+      // Phase 1: drawing first line (dashed preview)
+      const e = extendLine(c0.x, c0.y, mx, my);
+      return (
+        <g>
+          <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={col} strokeWidth={1.8} strokeDasharray="8 4" />
+          <circle cx={c0.x} cy={c0.y} r={5} fill={col} />
+        </g>
+      );
+    }
+    // Phase 2: first line is solid, second (parallel through cursor) dashed
+    const e1 = extendLine(c0.x, c0.y, c1.x, c1.y);
+    const dx = c1.x - c0.x, dy = c1.y - c0.y;
+    const e2 = extendLine(mx, my, mx + dx, my + dy);
+    return (
+      <g>
+        <polygon points={`${e1.x1},${e1.y1} ${e1.x2},${e1.y2} ${e2.x2},${e2.y2} ${e2.x1},${e2.y1}`}
+          fill={col} fillOpacity={0.06} />
+        <line x1={e1.x1} y1={e1.y1} x2={e1.x2} y2={e1.y2} stroke={col} strokeWidth={1.8} />
+        <line x1={e2.x1} y1={e2.y1} x2={e2.x2} y2={e2.y2} stroke={col} strokeWidth={1.5} strokeDasharray="6 4" opacity={0.8} />
+        <circle cx={c0.x} cy={c0.y} r={4} fill={col} />
+        <circle cx={c1.x} cy={c1.y} r={4} fill={col} />
+      </g>
+    );
+  }
+
+  if (tool === 'fib') {
+    if (!c0) return null;
+    const LEVELS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+    const dy = my - c0.y;
+    return (
+      <g opacity={0.6}>
+        {LEVELS.map(lv => (
+          <line key={lv} x1={-10000} y1={c0.y + lv * dy} x2={10000} y2={c0.y + lv * dy}
+            stroke={col} strokeWidth={1} />
+        ))}
+        <circle cx={c0.x} cy={c0.y} r={4} fill={col} />
+        <circle cx={mx} cy={my} r={4} fill={col} opacity={0.6} />
+      </g>
+    );
+  }
+
+  if (tool === 'rect') {
+    if (!c0) return null;
+    const bx = Math.min(c0.x, mx), by = Math.min(c0.y, my);
+    const bw = Math.max(Math.abs(mx - c0.x), 1), bh = Math.max(Math.abs(my - c0.y), 1);
+    return <rect x={bx} y={by} width={bw} height={bh} fill={col} fillOpacity={0.08}
+      stroke={col} strokeWidth={1.5} strokeDasharray="6 3" rx={2} />;
+  }
+
+  return null;
+}
+
 
 // ── Main component ───────────────────────────────────────────────
 export default function Chart({ symbol }: Props) {
@@ -257,11 +323,13 @@ export default function Chart({ symbol }: Props) {
   const [rpsReady, setRpsReady] = useState(false);
   const [legend, setLegend] = useState<{ o: number; h: number; l: number; c: number; v: number } | null>(null);
 
-  // Drawing tool state — activePos is the live coords while dragging
-  const [activePos, setActivePos] = useState<{ x1: number; y1: number; x2: number; y2: number; tool: string } | null>(null);
+  // Drawing state
+  const [pending, setPending]         = useState<Pending>(null);
   const [savedDrawings, setSavedDrawings] = useState<Drawing[]>([]);
-  const overlayDivRef = useRef<HTMLDivElement>(null);
-  const docListenersRef = useRef<{ move: (e: MouseEvent) => void; up: (e: MouseEvent) => void } | null>(null);
+  const pendingRef   = useRef<Pending>(null);          // mirrors pending without closure issues
+  const overlayRef   = useRef<HTMLDivElement>(null);
+  const previewRef   = useRef<((e: MouseEvent) => void) | null>(null); // mousemove for click-tools
+  const dragRef      = useRef<{ move: (e: MouseEvent) => void; up: (e: MouseEvent) => void } | null>(null);
 
   const indicatorResults = useMemo<IndicatorResult[]>(() => {
     if (candles.length === 0) return [];
@@ -272,7 +340,6 @@ export default function Chart({ symbol }: Props) {
   const hasMACD = indicatorResults.some(r => r.type === 'MACD');
   const hasRPS = indicatorResults.some(r => r.type === 'RPS');
   const colors = useMemo(() => getThemeColors(theme), [theme]);
-  const accentColor = theme === 'dark' ? '#7c6bff' : '#5b54e8';
 
   const onCrosshairMove = useCallback((param: MouseEventParams) => {
     if (!param.time || !candleSeriesRef.current || !volumeSeriesRef.current) { setLegend(null); return; }
@@ -456,86 +523,116 @@ export default function Chart({ symbol }: Props) {
     }
   }, [indicatorResults, chartReady, rsiReady, macdReady, rpsReady, colors]);
 
-  // Clear drawings when tool changes
-  useEffect(() => {
-    setActivePos(null);
-    setSavedDrawings([]);
-    // Remove any lingering document listeners
-    if (docListenersRef.current) {
-      document.removeEventListener('mousemove', docListenersRef.current.move);
-      document.removeEventListener('mouseup', docListenersRef.current.up);
-      docListenersRef.current = null;
-    }
-  }, [activeTool]);
+  // Helper: keep ref in sync with state
+  const setP = useCallback((p: Pending) => { pendingRef.current = p; setPending(p); }, []);
 
-  // Cleanup document listeners on unmount
+  // Clear everything when tool changes
   useEffect(() => {
-    return () => {
-      if (docListenersRef.current) {
-        document.removeEventListener('mousemove', docListenersRef.current.move);
-        document.removeEventListener('mouseup', docListenersRef.current.up);
-      }
-    };
+    setP(null);
+    setSavedDrawings([]);
+    if (previewRef.current) { document.removeEventListener('mousemove', previewRef.current); previewRef.current = null; }
+    if (dragRef.current) {
+      document.removeEventListener('mousemove', dragRef.current.move);
+      document.removeEventListener('mouseup',   dragRef.current.up);
+      dragRef.current = null;
+    }
+  }, [activeTool, setP]);
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    if (previewRef.current) document.removeEventListener('mousemove', previewRef.current);
+    if (dragRef.current) {
+      document.removeEventListener('mousemove', dragRef.current.move);
+      document.removeEventListener('mouseup',   dragRef.current.up);
+    }
   }, []);
 
-  // Single mousedown handler — wires up document-level move/up so tracking
-  // works even when the cursor leaves the overlay div (price axis, etc.)
   const handleOverlayDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const overlayEl = overlayDivRef.current;
-    if (!overlayEl) return;
-
-    const rect = overlayEl.getBoundingClientRect();
-    const startX = e.clientX - rect.left;
-    const startY = e.clientY - rect.top;
+    const el = overlayRef.current;
+    if (!el) return;
+    const r   = el.getBoundingClientRect();
+    const x   = e.clientX - r.left;
+    const y   = e.clientY - r.top;
     const tool = activeTool;
 
-    setActivePos({ x1: startX, y1: startY, x2: startX, y2: startY, tool });
+    // ── DRAG tool (measure) ──────────────────────────────────────
+    if (DRAG_TOOLS.has(tool)) {
+      const start: Pt = { x, y };
+      setP({ tool, clicks: [start], mx: x, my: y });
 
-    const onMove = (ev: MouseEvent) => {
-      const r = overlayEl.getBoundingClientRect();
-      setActivePos({
-        x1: startX, y1: startY,
-        x2: ev.clientX - r.left,
-        y2: ev.clientY - r.top,
-        tool,
-      });
-    };
+      const onMove = (ev: MouseEvent) => {
+        const rr = el.getBoundingClientRect();
+        setP({ tool, clicks: [start], mx: ev.clientX - rr.left, my: ev.clientY - rr.top });
+      };
+      const onUp = (ev: MouseEvent) => {
+        const rr = el.getBoundingClientRect();
+        const ex = ev.clientX - rr.left, ey = ev.clientY - rr.top;
+        setP(null);
+        setSavedDrawings(prev => [...prev, { id: `${tool}-${Date.now()}`, tool, pts: [start, { x: ex, y: ey }] }]);
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        dragRef.current = null;
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+      dragRef.current = { move: onMove, up: onUp };
+      return;
+    }
 
-    const onUp = (ev: MouseEvent) => {
-      const r = overlayEl.getBoundingClientRect();
-      const endX = ev.clientX - r.left;
-      const endY = ev.clientY - r.top;
-      setActivePos(null);
-      setSavedDrawings(prev => [...prev, {
-        id: `${tool}-${Date.now()}`,
-        tool,
-        x1: startX,
-        y1: startY,
-        x2: endX,
-        y2: tool === 'hline' ? startY : endY,
-      }]);
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      docListenersRef.current = null;
-    };
+    // ── CLICK tool ───────────────────────────────────────────────
+    const need  = CLICKS_FOR[tool] ?? 2;
+    const cur   = pendingRef.current;
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    docListenersRef.current = { move: onMove, up: onUp };
-  }, [activeTool]);
+    if (!cur || cur.tool !== tool) {
+      // First click — start new pending drawing
+      setP({ tool, clicks: [{ x, y }], mx: x, my: y });
+      // Start live-preview tracking
+      if (previewRef.current) document.removeEventListener('mousemove', previewRef.current);
+      const onMove = (ev: MouseEvent) => {
+        const rr = el.getBoundingClientRect();
+        const nmx = ev.clientX - rr.left, nmy = ev.clientY - rr.top;
+        pendingRef.current = pendingRef.current ? { ...pendingRef.current, mx: nmx, my: nmy } : null;
+        setPending(pendingRef.current);
+      };
+      previewRef.current = onMove;
+      document.addEventListener('mousemove', onMove);
+    } else {
+      // Subsequent click
+      const newClicks = [...cur.clicks, { x, y }];
+      if (newClicks.length >= need) {
+        // Finalize
+        setSavedDrawings(prev => [...prev, { id: `${tool}-${Date.now()}`, tool, pts: newClicks }]);
+        if (previewRef.current) { document.removeEventListener('mousemove', previewRef.current); previewRef.current = null; }
+        setP(null);
+      } else {
+        setP({ ...cur, clicks: newClicks, mx: x, my: y });
+      }
+    }
+  }, [activeTool, setP]);
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
   const dl = legend || (lastCandle ? { o: lastCandle.open, h: lastCandle.high, l: lastCandle.low, c: lastCandle.close, v: lastCandle.volume } : null);
-  const noData = !loading && !error && candles.length === 0;
-  const isOverlayTool = OVERLAY_TOOLS.has(activeTool);
+  const noData      = !loading && !error && candles.length === 0;
+  const isDrawTool  = ALL_DRAW_TOOLS.has(activeTool);
+  const dark        = theme === 'dark';
 
   const toolHints: Record<string, string> = {
-    trendline: 'Click & drag to draw a trend line',
-    hline: 'Click to place a horizontal price level',
-    channel: 'Click & drag to draw a parallel channel',
-    measure: `Click & drag to measure a price move · ${measureMultiplier}x multiplier`,
+    trendline: 'Click to set start · Click again to set end',
+    hline:     'Click to place a horizontal price level',
+    channel:   'Click start · Click end · Click to set parallel',
+    fib:       'Click start · Click end for Fibonacci levels',
+    rect:      'Click two corners to draw a rectangle',
+    measure:   `Drag to measure a price move · ${measureMultiplier}x multiplier`,
   };
+  const pendingHint = pending && pending.clicks.length === 1 && (
+    pending.tool === 'channel' ? 'Click end of first line' :
+    pending.tool === 'trendline' ? 'Click to set end point' :
+    pending.tool === 'fib' ? 'Click end price level' :
+    pending.tool === 'rect' ? 'Click opposite corner' : ''
+  );
+  const pendingHint2 = pending && pending.clicks.length === 2 && pending.tool === 'channel'
+    ? 'Click to set parallel line position' : '';
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-chart)' }}>
@@ -594,44 +691,33 @@ export default function Chart({ symbol }: Props) {
         {/* Lightweight-charts canvas */}
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-        {/* Always-on SVG — saved drawings, pointer-events: none so chart still pans */}
-        <svg
-          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 9999 }}
-          aria-hidden="true"
-        >
+        {/* Saved drawings — always visible, no pointer events */}
+        <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 9999 }}>
           {savedDrawings.map(d => (
-            <DrawingSVG key={d.id} d={d} cs={candleSeriesRef.current} measureMult={measureMultiplier} accent={accentColor} />
+            <SavedDrawing key={d.id} d={d} cs={candleSeriesRef.current} measureMult={measureMultiplier} dark={dark} />
           ))}
         </svg>
 
-        {/* Active drawing overlay — only shown when a drawing tool is selected */}
-        {isOverlayTool && (
+        {/* Drawing overlay — active only when a drawing tool is selected */}
+        {isDrawTool && (
           <div
-            ref={overlayDivRef}
+            ref={overlayRef}
             style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 10000, cursor: 'crosshair', userSelect: 'none' }}
             onMouseDown={handleOverlayDown}
           >
-            {/* pointer-events:none so the SVG doesn't swallow the mousedown */}
-            <svg
-              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' }}
-              aria-hidden="true"
-            >
-              {activePos && (
-                <ActiveLineSVG x1={activePos.x1} y1={activePos.y1} x2={activePos.x2} y2={activePos.y2} tool={activePos.tool} accent={accentColor} />
-              )}
+            <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' }}>
+              <PendingPreview p={pending} dark={dark} />
             </svg>
 
-            {/* Hint bar */}
-            {!activePos && (
-              <div style={{
-                position: 'absolute', bottom: '32px', left: '50%', transform: 'translateX(-50%)',
-                background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: '11px',
-                padding: '5px 14px', borderRadius: '6px', pointerEvents: 'none', whiteSpace: 'nowrap',
-                backdropFilter: 'blur(8px)',
-              }}>
-                {toolHints[activeTool] ?? ''}
-              </div>
-            )}
+            {/* Contextual hint */}
+            <div style={{
+              position: 'absolute', bottom: '32px', left: '50%', transform: 'translateX(-50%)',
+              background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '11px',
+              padding: '5px 14px', borderRadius: '6px', pointerEvents: 'none', whiteSpace: 'nowrap',
+              backdropFilter: 'blur(8px)', opacity: (pendingHint || pendingHint2) ? 1 : 0.85,
+            }}>
+              {pendingHint2 || pendingHint || toolHints[activeTool] || ''}
+            </div>
           </div>
         )}
       </div>
