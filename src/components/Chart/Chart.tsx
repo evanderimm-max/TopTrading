@@ -189,6 +189,44 @@ function DrawingSVG({
   return null;
 }
 
+// Simplified live-drawing renderer — just shows the shape while dragging
+function ActiveLineSVG({ x1, y1, x2, y2, tool, accent }: { x1: number; y1: number; x2: number; y2: number; tool: string; accent: string }) {
+  if (tool === 'hline') {
+    return <line x1={-10000} y1={y1} x2={10000} y2={y1} stroke={accent} strokeWidth={1.5} strokeDasharray="8 5" opacity={0.85} />;
+  }
+  if (tool === 'trendline') {
+    const e = extendLine(x1, y1, x2, y2);
+    return (
+      <g>
+        <line x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2} stroke={accent} strokeWidth={1.8} strokeLinecap="round" opacity={0.9} />
+        <circle cx={x1} cy={y1} r={4} fill={accent} opacity={0.9} />
+        <circle cx={x2} cy={y2} r={4} fill={accent} opacity={0.9} />
+      </g>
+    );
+  }
+  if (tool === 'channel') {
+    const e1 = extendLine(x1, y1, x2, y2);
+    const p = perpLine(x1, y1, x2, y2, 60);
+    const e2 = extendLine(p.x1, p.y1, p.x2, p.y2);
+    return (
+      <g>
+        <polygon points={`${e1.x1},${e1.y1} ${e1.x2},${e1.y2} ${e2.x2},${e2.y2} ${e2.x1},${e2.y1}`} fill={accent} fillOpacity={0.07} />
+        <line x1={e1.x1} y1={e1.y1} x2={e1.x2} y2={e1.y2} stroke={accent} strokeWidth={1.8} />
+        <line x1={e2.x1} y1={e2.y1} x2={e2.x2} y2={e2.y2} stroke={accent} strokeWidth={1.2} strokeDasharray="6 4" opacity={0.75} />
+      </g>
+    );
+  }
+  if (tool === 'measure') {
+    const isUp = y2 < y1;
+    const color = isUp ? '#26a69a' : '#ef5350';
+    const fill = isUp ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
+    const bx = Math.min(x1, x2), by = Math.min(y1, y2);
+    const bw = Math.abs(x2 - x1), bh = Math.abs(y2 - y1);
+    return <rect x={bx} y={by} width={Math.max(bw, 1)} height={Math.max(bh, 1)} fill={fill} stroke={color} strokeWidth={1} rx={2} />;
+  }
+  return null;
+}
+
 // ── Main component ───────────────────────────────────────────────
 export default function Chart({ symbol }: Props) {
   const timeframe = useAppStore(s => s.timeframe);
@@ -219,11 +257,11 @@ export default function Chart({ symbol }: Props) {
   const [rpsReady, setRpsReady] = useState(false);
   const [legend, setLegend] = useState<{ o: number; h: number; l: number; c: number; v: number } | null>(null);
 
-  // Drawing tool state
-  const [activeDrawing, setActiveDrawing] = useState<ActiveDrawing | null>(null);
+  // Drawing tool state — activePos is the live coords while dragging
+  const [activePos, setActivePos] = useState<{ x1: number; y1: number; x2: number; y2: number; tool: string } | null>(null);
   const [savedDrawings, setSavedDrawings] = useState<Drawing[]>([]);
-  const drawRef = useRef(false);
-  const activeDrawingDataRef = useRef<ActiveDrawing | null>(null);
+  const overlayDivRef = useRef<HTMLDivElement>(null);
+  const docListenersRef = useRef<{ move: (e: MouseEvent) => void; up: (e: MouseEvent) => void } | null>(null);
 
   const indicatorResults = useMemo<IndicatorResult[]>(() => {
     if (candles.length === 0) return [];
@@ -418,51 +456,74 @@ export default function Chart({ symbol }: Props) {
     }
   }, [indicatorResults, chartReady, rsiReady, macdReady, rpsReady, colors]);
 
-  // Clear drawings when tool changes (fresh start per tool session)
+  // Clear drawings when tool changes
   useEffect(() => {
-    setActiveDrawing(null);
+    setActivePos(null);
     setSavedDrawings([]);
-    drawRef.current = false;
-    activeDrawingDataRef.current = null;
+    // Remove any lingering document listeners
+    if (docListenersRef.current) {
+      document.removeEventListener('mousemove', docListenersRef.current.move);
+      document.removeEventListener('mouseup', docListenersRef.current.up);
+      docListenersRef.current = null;
+    }
   }, [activeTool]);
 
-  // Pointer event handlers — more reliable than mouse events (pointer capture keeps
-  // tracking even when cursor leaves the div or moves to the price axis)
-  const handleOverlayDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    drawRef.current = true;
-    const d: ActiveDrawing = { tool: activeTool, x1: x, y1: y, x2: x, y2: y };
-    activeDrawingDataRef.current = d;
-    setActiveDrawing(d);
-  }, [activeTool]);
-
-  const handleOverlayMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawRef.current || !activeDrawingDataRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    const updated: ActiveDrawing = { ...activeDrawingDataRef.current, x2: x, y2: y };
-    activeDrawingDataRef.current = updated;
-    setActiveDrawing(updated);
-  }, []);
-
-  const handleOverlayUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    if (!drawRef.current || !activeDrawingDataRef.current) return;
-    drawRef.current = false;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    const prev = activeDrawingDataRef.current;
-    const final: Drawing = {
-      ...prev,
-      x2: x,
-      y2: prev.tool === 'hline' ? prev.y1 : y,
-      id: `${prev.tool}-${Date.now()}`,
+  // Cleanup document listeners on unmount
+  useEffect(() => {
+    return () => {
+      if (docListenersRef.current) {
+        document.removeEventListener('mousemove', docListenersRef.current.move);
+        document.removeEventListener('mouseup', docListenersRef.current.up);
+      }
     };
-    activeDrawingDataRef.current = null;
-    setActiveDrawing(null);
-    setSavedDrawings(d => [...d, final]);
   }, []);
+
+  // Single mousedown handler — wires up document-level move/up so tracking
+  // works even when the cursor leaves the overlay div (price axis, etc.)
+  const handleOverlayDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const overlayEl = overlayDivRef.current;
+    if (!overlayEl) return;
+
+    const rect = overlayEl.getBoundingClientRect();
+    const startX = e.clientX - rect.left;
+    const startY = e.clientY - rect.top;
+    const tool = activeTool;
+
+    setActivePos({ x1: startX, y1: startY, x2: startX, y2: startY, tool });
+
+    const onMove = (ev: MouseEvent) => {
+      const r = overlayEl.getBoundingClientRect();
+      setActivePos({
+        x1: startX, y1: startY,
+        x2: ev.clientX - r.left,
+        y2: ev.clientY - r.top,
+        tool,
+      });
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      const r = overlayEl.getBoundingClientRect();
+      const endX = ev.clientX - r.left;
+      const endY = ev.clientY - r.top;
+      setActivePos(null);
+      setSavedDrawings(prev => [...prev, {
+        id: `${tool}-${Date.now()}`,
+        tool,
+        x1: startX,
+        y1: startY,
+        x2: endX,
+        y2: tool === 'hline' ? startY : endY,
+      }]);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      docListenersRef.current = null;
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    docListenersRef.current = { move: onMove, up: onUp };
+  }, [activeTool]);
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
   const dl = legend || (lastCandle ? { o: lastCandle.open, h: lastCandle.high, l: lastCandle.low, c: lastCandle.close, v: lastCandle.volume } : null);
@@ -533,29 +594,35 @@ export default function Chart({ symbol }: Props) {
         {/* Lightweight-charts canvas */}
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 
-        {/* Always-on SVG layer for saved drawings (pointer-events: none so chart still pans) */}
-        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 9999 }}>
+        {/* Always-on SVG — saved drawings, pointer-events: none so chart still pans */}
+        <svg
+          style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none', zIndex: 9999 }}
+          aria-hidden="true"
+        >
           {savedDrawings.map(d => (
             <DrawingSVG key={d.id} d={d} cs={candleSeriesRef.current} measureMult={measureMultiplier} accent={accentColor} />
           ))}
         </svg>
 
-        {/* Active drawing overlay — captures pointer events when a drawing tool is active */}
+        {/* Active drawing overlay — only shown when a drawing tool is selected */}
         {isOverlayTool && (
           <div
-            style={{ position: 'absolute', inset: 0, zIndex: 10000, cursor: 'crosshair', userSelect: 'none', touchAction: 'none' }}
-            onPointerDown={handleOverlayDown}
-            onPointerMove={handleOverlayMove}
-            onPointerUp={handleOverlayUp}
+            ref={overlayDivRef}
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 10000, cursor: 'crosshair', userSelect: 'none' }}
+            onMouseDown={handleOverlayDown}
           >
-            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}>
-              {activeDrawing && (
-                <DrawingSVG d={activeDrawing} cs={candleSeriesRef.current} measureMult={measureMultiplier} accent={accentColor} />
+            {/* pointer-events:none so the SVG doesn't swallow the mousedown */}
+            <svg
+              style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', overflow: 'visible', pointerEvents: 'none' }}
+              aria-hidden="true"
+            >
+              {activePos && (
+                <ActiveLineSVG x1={activePos.x1} y1={activePos.y1} x2={activePos.x2} y2={activePos.y2} tool={activePos.tool} accent={accentColor} />
               )}
             </svg>
 
-            {/* Hint bar at the bottom */}
-            {!activeDrawing && (
+            {/* Hint bar */}
+            {!activePos && (
               <div style={{
                 position: 'absolute', bottom: '32px', left: '50%', transform: 'translateX(-50%)',
                 background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: '11px',
