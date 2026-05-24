@@ -17,9 +17,10 @@ function mapTimeframe(tf: Timeframe): { interval: string; outputsize: number } {
   }
 }
 
-export async function getTwelveDataCandles(symbol: string, timeframe: Timeframe): Promise<Candle[]> {
+export async function getTwelveDataCandles(symbol: string, timeframe: Timeframe, endDate?: string): Promise<Candle[]> {
   const { interval, outputsize } = mapTimeframe(timeframe);
-  const url = `${BASE}/time_series?symbol=${symbol}&interval=${interval}&outputsize=${outputsize}&apikey=${API_KEY}`;
+  let url = `${BASE}/time_series?symbol=${symbol}&interval=${interval}&outputsize=${outputsize}&apikey=${API_KEY}`;
+  if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
 
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Twelve Data HTTP ${res.status}`);

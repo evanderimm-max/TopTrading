@@ -37,12 +37,20 @@ function getThemeColors(theme: string) {
   };
 }
 
+interface MeasureDrawing {
+  x1: number; y1: number;
+  x2: number; y2: number;
+  done: boolean;
+}
+
 export default function Chart({ symbol }: Props) {
   const timeframe = useAppStore(s => s.timeframe);
   const theme = useAppStore(s => s.theme);
   const indicatorConfigs = useAppStore(s => s.indicators);
   const removeIndicator = useAppStore(s => s.removeIndicator);
-  const { candles, loading, error } = useCandles(symbol, timeframe);
+  const activeTool = useAppStore(s => s.activeTool);
+  const measureMultiplier = useAppStore(s => s.measureMultiplier);
+  const { candles, loading, error, loadingMore, loadMoreHistory, prependedCountRef } = useCandles(symbol, timeframe);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const rsiContainerRef = useRef<HTMLDivElement>(null);
@@ -63,6 +71,10 @@ export default function Chart({ symbol }: Props) {
   const [macdReady, setMacdReady] = useState(false);
   const [rpsReady, setRpsReady] = useState(false);
   const [legend, setLegend] = useState<{ o: number; h: number; l: number; c: number; v: number } | null>(null);
+
+  // Measure tool state
+  const [measureDrawing, setMeasureDrawing] = useState<MeasureDrawing | null>(null);
+  const measureActiveRef = useRef(false);
 
   const indicatorResults = useMemo<IndicatorResult[]>(() => {
     if (candles.length === 0) return [];
@@ -118,6 +130,20 @@ export default function Chart({ symbol }: Props) {
       setChartReady(false);
     };
   }, [onCrosshairMove, colors]);
+
+  // Subscribe to visible range changes for infinite scroll
+  useEffect(() => {
+    if (!chartReady || !chartRef.current) return;
+    const chart = chartRef.current;
+    const handler = () => {
+      const range = chart.timeScale().getVisibleLogicalRange();
+      if (range && (range as unknown as { from: number }).from < 10) {
+        loadMoreHistory();
+      }
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(handler);
+    return () => { chart.timeScale().unsubscribeVisibleLogicalRangeChange(handler); };
+  }, [chartReady, loadMoreHistory]);
 
   // RSI sub-chart
   useEffect(() => {
@@ -179,39 +205,56 @@ export default function Chart({ symbol }: Props) {
     return () => { chart.remove(); rpsChartRef.current = null; rpsSeriesRef.current = []; setRpsReady(false); };
   }, [hasRPS, colors]);
 
-  // Set candle + volume data
+  // Set candle + volume data — preserves scroll position on history prepend
   useEffect(() => {
     if (!chartReady || !candleSeriesRef.current || !volumeSeriesRef.current) return;
     if (candles.length === 0) { candleSeriesRef.current.setData([]); volumeSeriesRef.current.setData([]); return; }
+
+    const prependCount = prependedCountRef.current;
+    prependedCountRef.current = 0;
+    const isPrepend = prependCount > 0;
+
+    let savedRange: { from: number; to: number } | null = null;
+    if (isPrepend && chartRef.current) {
+      const r = chartRef.current.timeScale().getVisibleLogicalRange();
+      if (r) savedRange = { from: (r as unknown as { from: number }).from, to: (r as unknown as { to: number }).to };
+    }
+
     candleSeriesRef.current.setData(candles.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close })));
     volumeSeriesRef.current.setData(candles.map(c => ({
       time: c.time as Time, value: c.volume,
       color: c.close >= c.open ? colors.volUp : colors.volDown,
     })));
-    chartRef.current?.timeScale().fitContent();
-    const last = candles[candles.length - 1];
-    setLegend({ o: last.open, h: last.high, l: last.low, c: last.close, v: last.volume });
-  }, [candles, chartReady, colors]);
+
+    if (isPrepend && savedRange) {
+      const from = savedRange.from + prependCount;
+      const to = savedRange.to + prependCount;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (chartRef.current?.timeScale() as any)?.setVisibleLogicalRange({ from, to });
+      }));
+    } else {
+      chartRef.current?.timeScale().fitContent();
+      const last = candles[candles.length - 1];
+      setLegend({ o: last.open, h: last.high, l: last.low, c: last.close, v: last.volume });
+    }
+  }, [candles, chartReady, colors, prependedCountRef]);
 
   // Render all indicators
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart || !chartReady) return;
 
-    // Clear overlays
     overlaySeriesRef.current.forEach(s => { try { chart.removeSeries(s); } catch {} });
     overlaySeriesRef.current = [];
-    // Clear RSI
     if (rsiChartRef.current) {
       rsiSeriesRef.current.forEach(s => { try { rsiChartRef.current!.removeSeries(s); } catch {} });
       rsiSeriesRef.current = [];
     }
-    // Clear MACD
     if (macdChartRef.current) {
       macdSeriesRef.current.forEach(s => { try { macdChartRef.current!.removeSeries(s); } catch {} });
       macdSeriesRef.current = [];
     }
-    // Clear RPS
     if (rpsChartRef.current) {
       rpsSeriesRef.current.forEach(s => { try { rpsChartRef.current!.removeSeries(s); } catch {} });
       rpsSeriesRef.current = [];
@@ -257,7 +300,6 @@ export default function Chart({ symbol }: Props) {
           s.setData(line.data);
           rpsSeriesRef.current.push(s);
         }
-        // Zero line
         if (result.lines[0]?.data.length > 1) {
           const pts = result.lines[0].data;
           const zl = rpsChartRef.current.addLineSeries({ color: colors.text + '30', lineWidth: 1, lineStyle: 2, priceLineVisible: false, lastValueVisible: false });
@@ -268,6 +310,83 @@ export default function Chart({ symbol }: Props) {
       }
     }
   }, [indicatorResults, chartReady, rsiReady, macdReady, rpsReady, colors]);
+
+  // Clear measure drawing when switching away from measure tool
+  useEffect(() => {
+    if (activeTool !== 'measure') {
+      setMeasureDrawing(null);
+      measureActiveRef.current = false;
+    }
+  }, [activeTool]);
+
+  // Measure tool mouse handlers
+  const handleMeasureDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (activeTool !== 'measure') return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    measureActiveRef.current = true;
+    setMeasureDrawing({ x1: x, y1: y, x2: x, y2: y, done: false });
+  }, [activeTool]);
+
+  const handleMeasureMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!measureActiveRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setMeasureDrawing(prev => prev ? { ...prev, x2: x, y2: y } : null);
+  }, []);
+
+  const handleMeasureUp = useCallback(() => {
+    measureActiveRef.current = false;
+    setMeasureDrawing(prev => prev ? { ...prev, done: true } : null);
+  }, []);
+
+  // Compute measure visualization
+  const measureVis = useMemo(() => {
+    if (!measureDrawing || !candleSeriesRef.current) return null;
+    const md = measureDrawing;
+    const cs = candleSeriesRef.current;
+    const p1 = cs.coordinateToPrice(md.y1);
+    const p2 = cs.coordinateToPrice(md.y2);
+    if (p1 === null || p2 === null) return null;
+
+    const isUp = p2 > p1;
+    const color = isUp ? '#26a69a' : '#ef5350';
+    const fillColor = isUp ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
+    const extFill = isUp ? 'rgba(38,166,154,0.08)' : 'rgba(239,83,80,0.08)';
+
+    // Target price: P1 + M*(P2-P1)
+    const pTarget = p1 + measureMultiplier * (p2 - p1);
+    // Target y: y1 + M*(y2-y1)
+    const yTarget = md.y1 + measureMultiplier * (md.y2 - md.y1);
+    // Time extension: extend same duration to the right
+    const xExt = md.x2 + (md.x2 - md.x1);
+
+    const pctMove = ((p2 - p1) / p1 * 100);
+    const pctTarget = ((pTarget - p1) / p1 * 100);
+
+    // Measured box bounds
+    const bx = Math.min(md.x1, md.x2);
+    const by = Math.min(md.y1, md.y2);
+    const bw = Math.abs(md.x2 - md.x1);
+    const bh = Math.abs(md.y2 - md.y1);
+
+    // Extension box bounds
+    const ex = Math.min(md.x2, xExt);
+    const ey = Math.min(md.y2, yTarget);
+    const ew = Math.abs(xExt - md.x2);
+    const eh = Math.abs(yTarget - md.y2);
+
+    const midX = (md.x1 + md.x2) / 2;
+    const midY = (md.y1 + md.y2) / 2;
+    const extMidX = (md.x2 + xExt) / 2;
+    const extMidY = (md.y2 + yTarget) / 2;
+
+    return { md, isUp, color, fillColor, extFill, pTarget, yTarget, xExt, pctMove, pctTarget, bx, by, bw, bh, ex, ey, ew, eh, midX, midY, extMidX, extMidY, p1, p2 };
+  // Re-compute on every render when drawing changes (coordinateToPrice reads live chart state)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [measureDrawing, measureMultiplier]);
 
   const lastCandle = candles.length > 0 ? candles[candles.length - 1] : null;
   const dl = legend || (lastCandle ? { o: lastCandle.open, h: lastCandle.high, l: lastCandle.low, c: lastCandle.close, v: lastCandle.volume } : null);
@@ -306,6 +425,13 @@ export default function Chart({ symbol }: Props) {
           ))}
         </div>
 
+        {/* Loading more history indicator */}
+        {loadingMore && (
+          <div style={{ position: 'absolute', bottom: '8px', left: '50%', transform: 'translateX(-50%)', zIndex: 25, background: 'var(--bg-glass)', backdropFilter: 'var(--glass-blur)', border: '1px solid var(--border-glass)', borderRadius: 'var(--radius-xs)', padding: '4px 10px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+            Loading history…
+          </div>
+        )}
+
         {loading && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-glass)', backdropFilter: 'var(--glass-blur)', zIndex: 30, color: 'var(--text-secondary)', fontSize: '13px' }}>
             Loading...
@@ -319,6 +445,98 @@ export default function Chart({ symbol }: Props) {
           </div>
         )}
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+        {/* Measure Move tool overlay */}
+        {activeTool === 'measure' && (
+          <div
+            style={{ position: 'absolute', inset: 0, zIndex: 15, cursor: 'crosshair', userSelect: 'none' }}
+            onMouseDown={handleMeasureDown}
+            onMouseMove={handleMeasureMove}
+            onMouseUp={handleMeasureUp}
+            onMouseLeave={handleMeasureUp}
+          >
+            <svg width="100%" height="100%" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
+              {measureVis && (() => {
+                const v = measureVis;
+                return (
+                  <g>
+                    {/* Measured box */}
+                    {v.bw > 0 && v.bh > 0 && (
+                      <rect x={v.bx} y={v.by} width={v.bw} height={v.bh}
+                        fill={v.fillColor} stroke={v.color} strokeWidth={1} rx={2} />
+                    )}
+
+                    {/* Extension box */}
+                    {v.ew > 0 && v.eh > 0 && (
+                      <rect x={v.ex} y={v.ey} width={v.ew} height={v.eh}
+                        fill={v.extFill} stroke={v.color} strokeWidth={1} strokeDasharray="5 3" rx={2} />
+                    )}
+
+                    {/* Divider line between measured & extension */}
+                    {v.bw > 0 && (
+                      <line x1={v.md.x2} y1={Math.min(v.by, v.ey)} x2={v.md.x2} y2={Math.max(v.by + v.bh, v.ey + v.eh)}
+                        stroke={v.color} strokeWidth={1} strokeDasharray="3 2" opacity={0.5} />
+                    )}
+
+                    {/* Measured % label (center of measured box) */}
+                    {v.bw > 40 && v.bh > 18 && (
+                      <>
+                        <rect x={v.midX - 34} y={v.midY - 10} width={68} height={18} rx={3} fill="rgba(0,0,0,0.55)" />
+                        <text x={v.midX} y={v.midY + 5} textAnchor="middle"
+                          fill={v.color} fontSize={11} fontWeight="bold" fontFamily="monospace" style={{ userSelect: 'none' }}>
+                          {v.pctMove >= 0 ? '+' : ''}{v.pctMove.toFixed(2)}%
+                        </text>
+                      </>
+                    )}
+
+                    {/* Extension % label (center of extension box) */}
+                    {v.ew > 40 && v.eh > 18 && (
+                      <>
+                        <rect x={v.extMidX - 44} y={v.extMidY - 10} width={88} height={18} rx={3} fill="rgba(0,0,0,0.55)" />
+                        <text x={v.extMidX} y={v.extMidY + 5} textAnchor="middle"
+                          fill={v.color} fontSize={11} fontWeight="bold" fontFamily="monospace" style={{ userSelect: 'none' }}>
+                          {measureMultiplier}x {v.pctTarget >= 0 ? '+' : ''}{v.pctTarget.toFixed(2)}%
+                        </text>
+                      </>
+                    )}
+
+                    {/* Start price label */}
+                    <text x={v.md.x1 + 4} y={v.md.y1 - 5}
+                      fill={v.color} fontSize={10} fontFamily="monospace"
+                      stroke="rgba(0,0,0,0.5)" strokeWidth={3} paintOrder="stroke" style={{ userSelect: 'none' }}>
+                      {v.p1.toFixed(2)}
+                    </text>
+
+                    {/* End price label */}
+                    <text x={v.md.x2 + 4} y={v.md.y2 - 5}
+                      fill={v.color} fontSize={10} fontFamily="monospace"
+                      stroke="rgba(0,0,0,0.5)" strokeWidth={3} paintOrder="stroke" style={{ userSelect: 'none' }}>
+                      {v.p2.toFixed(2)}
+                    </text>
+
+                    {/* Target price label */}
+                    <text x={v.ex + 4} y={v.yTarget - 5}
+                      fill={v.color} fontSize={10} fontFamily="monospace"
+                      stroke="rgba(0,0,0,0.5)" strokeWidth={3} paintOrder="stroke" style={{ userSelect: 'none' }}>
+                      {measureMultiplier}x: {v.pTarget.toFixed(2)}
+                    </text>
+                  </g>
+                );
+              })()}
+            </svg>
+
+            {/* Active tool hint */}
+            {!measureDrawing && (
+              <div style={{
+                position: 'absolute', bottom: '36px', left: '50%', transform: 'translateX(-50%)',
+                background: 'rgba(0,0,0,0.65)', color: '#fff', fontSize: '11px',
+                padding: '4px 12px', borderRadius: '4px', pointerEvents: 'none', whiteSpace: 'nowrap',
+              }}>
+                Click & drag to measure a price move · {measureMultiplier}x multiplier active
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {hasRSI && (
